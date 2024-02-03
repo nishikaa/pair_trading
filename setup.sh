@@ -1,0 +1,1 @@
+# poetry new pair-trading-foundations

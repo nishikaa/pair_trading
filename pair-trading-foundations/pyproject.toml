@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "pair-trading-foundations"
+version = "0.1.0"
+description = ""
+authors = [""]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+yfinance = "^0.2.36"
+pandas-datareader = "^0.10.0"
+pandas = "^2.2.0"
+numpy = "^1.26.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
