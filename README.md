@@ -17,3 +17,17 @@ poetry shell
 ```
 
 Which will set-up the virtual environment for you based on the packages specified in the pyproject.toml file.
+
+To add packages, do
+
+```
+poetry add package_name
+```
+
+then run 
+
+```
+poetry install
+```
+
+To update the package lists. Doing so will modify the poetry.lock and pyproject.toml files, which you should commit and push.
