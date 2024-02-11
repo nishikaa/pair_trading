@@ -11,6 +11,7 @@ yfinance = "^0.2.36"
 pandas-datareader = "^0.10.0"
 pandas = "^2.2.0"
 numpy = "^1.26.3"
+arch = "^6.3.0"
 
 [build-system]
 requires = ["poetry-core"]
