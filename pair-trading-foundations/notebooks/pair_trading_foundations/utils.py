@@ -43,3 +43,4 @@ class GetSP500Data:
         
         self.combined_table = combined_table
         return combined_table
+    
