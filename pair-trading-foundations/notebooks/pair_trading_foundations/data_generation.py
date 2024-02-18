@@ -13,7 +13,7 @@ class ExecutePairTrading:
         self.stop_loss=0.2
         
         self.stock1_position=None
-        self.stock2_position=None
+        self.stock2_position=None 
         self.stock1_long=None
         self.stock1_pl=0
         self.stock2_pl=0
@@ -60,8 +60,8 @@ class ExecutePairTrading:
                     self.stock2_pl = base_fund * (1-split) * ((self.stock2_position - vec2[i])/self.stock2_position)
                 else:
                     # calculate pnl when we long stock 2 and short stock 1
-                    self.stock1_pl = base_fund * (self.stock1_position - vec1[i])/self.stock1_position
-                    self.stock2_pl = base_fund * (vec2[i] - self.stock2_position)/self.stock2_position    
+                    self.stock1_pl = base_fund *split* (self.stock1_position - vec1[i])/self.stock1_position
+                    self.stock2_pl = base_fund *(1-split)* (vec2[i] - self.stock2_position)/self.stock2_position    
 
                 # when the absolute spread is less than 0.1 of the std, exit the positions
                 ## to-do in the future - this calculation is in-accurate as the exit should be executed the next
