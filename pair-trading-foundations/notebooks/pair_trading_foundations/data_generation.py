@@ -18,6 +18,7 @@ class ExecutePairTrading:
         self.stock1_pl=0
         self.stock2_pl=0
         self.final_pl=0
+        self.final_pl_pct=0
 
     def execute(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
         
@@ -96,19 +97,17 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     # Get all the combinations of tickers
     tickers = list(set(data.Ticker))
     combinations = list(itertools.combinations(tickers, 2))
-    print(f"{len(combinations)} stock pairs generated")
+    print(f"{len(combinations)} stock pairs detected")
 
     # Initiate data tables to store the generated results
     recorded_info_tb = pd.DataFrame(columns=[
             'ticker1', 
             'ticker2',
             'target_date',
-            'abs_spread',
             'abs_spread_mean',
             'abs_spread_std',
             'abs_spread_mean_l28',
             'abs_spread_std_l28',
-            'spread_normed'
     ])
 
     features_tb = pd.DataFrame(columns=[
@@ -135,7 +134,11 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
         'total_pnl_l28_mean_std'
     ])
     
+    i = 1
     for ticker1, ticker2 in combinations:
+        if i%1000 == 0:
+            print(f"Getting the {i}th pair")
+        i+=1
         # Get a list of unique dates for later use
         all_dates = data['Date'].unique()    
         # Flag indicating whether the two tickers are from the same sector
@@ -146,6 +149,12 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
         vec1_full = data['Close'][data.Ticker==ticker1].values
         vec2_full = data['Close'][data.Ticker==ticker2].values
 
+        # Check if a ticker has incomplete data
+        if len(vec1_full) != len(vec2_full):
+            # print(f"Incomplete data detected when generating for pair {ticker1} and {ticker2}. Skipping")
+            continue
+
+
         # Number of days in the data
         num_days_total = len(vec1_full)
 
@@ -154,7 +163,6 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
         sampled_indices = random.choices(possible_indices_to_sample, k=sample_size_per_pair)
 
         for idx in sampled_indices:
-            idx = sampled_indices[0]
             if verbose:
                 print(f"Sampled date is {all_dates[idx]}")
                 print(f"Dataset1 starts from {all_dates[idx-500]} to {all_dates[idx]}(exclusive)")
@@ -202,12 +210,10 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
                 ticker1, 
                 ticker2,
                 all_dates[idx],
-                abs_spread,
                 abs_spread_mean,
                 abs_spread_std,
                 abs_spread_mean_l28,
-                abs_spread_std_l28,
-                spread_normed
+                abs_spread_std_l28
             ]
 
             ## There are features that goes into the model (not ticker1, ticker2, the target date, which are used to join the tables)
