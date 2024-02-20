@@ -4,6 +4,7 @@ import pandas as pd
 import itertools
 import random
 from matplotlib import pyplot as plt
+from time import time
 
 class ExecutePairTrading:
     def __init__(self, abs_spread_mean, abs_spread_std, entry_signal=1.5, stop_loss=0.2):
@@ -11,12 +12,6 @@ class ExecutePairTrading:
         self.abs_spread_std = abs_spread_std
         self.entry_signal=entry_signal
         self.stop_loss=0.2
-        
-        self.stock1_position=None
-        self.stock2_position=None 
-        self.stock1_long=None
-        self.stock1_pl=0
-        self.stock2_pl=0
         self.final_pl=0
         self.final_pl_pct=0
 
@@ -104,8 +99,13 @@ class ExecutePairTrading:
         return self
 
 
-    def execute_legacy(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
-        
+    def execute_day_by_day(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
+
+        self.stock1_position=None
+        self.stock2_position=None 
+        self.stock1_long=None
+        self.stock1_pl=0
+        self.stock2_pl=0
         abs_spread = abs(np.array(vec1) - np.array(vec2))
 
         entry_signal=False
@@ -176,9 +176,15 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     """
     data: A pandas dataframe from the GetSP500Data module in ultils
     """
+    ts1 = time()
+    # set seed
     random.seed(23)
+
+    # Get a smaller version of the data for look-ups
+    data_agg = data[['Ticker','GICS Sector', 'GICS Sub-Industry']].drop_duplicates().reset_index(drop=True)
+
     # Get all the combinations of tickers
-    tickers = list(set(data.Ticker))
+    tickers = list(data_agg.Ticker.values)
     combinations = list(itertools.combinations(tickers, 2))
     print(f"{len(combinations)} stock pairs detected")
 
@@ -220,14 +226,17 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     i = 1
     # Get a list of unique dates for later use
     all_dates = data['Date'].unique()    
-    
+
+    ts2 =  time()
+    print(f"Took {ts2 - ts1} to initilize. Entering ticker pair loop")
     for ticker1, ticker2 in combinations:
+        ts2 = time()
         if i%1000 == 0:
             print(f"Getting the {i}th pair")
         i+=1
         # Flag indicating whether the two tickers are from the same sector
-        same_sector_flag = data[data.Ticker==ticker1]['GICS Sector'].values[0] == data[data.Ticker==ticker2]['GICS Sector'].values[0]
-        same_sub_industry_flag = data[data.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data[data.Ticker==ticker2]['GICS Sub-Industry'].values[0]
+        same_sector_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sector'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sector'].values[0]
+        same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
 
         # The the full history of the data
         vec1_full = data['Close'][data.Ticker==ticker1].values
@@ -244,7 +253,10 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
         possible_indices_to_sample = list(range(training_len, num_days_total-test_len-1))
         sampled_indices = random.choices(possible_indices_to_sample, k=sample_size_per_pair)
 
+        ts3 = time()
+        # print(f"Took {ts3 - ts2} to get stats for one pair. Entering sampling")
         for idx in sampled_indices:
+            ts3 = time()
             if verbose:
                 print(f"Sampled date is {all_dates[idx]}")
                 print(f"Dataset1 starts from {all_dates[idx-500]} to {all_dates[idx]}(exclusive)")
@@ -347,6 +359,10 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
             ]
                       
             labels_tb.loc[len(labels_tb)] = label_list
-                        
+
+        ts4 = time()
+        # print(f"Took {ts4 - ts3} to finish sampling. Going to next pair")
+    ts_final = time()
+    print(f"Took {ts_final - ts1} to finish")
     return recorded_info_tb, features_tb, labels_tb
 
