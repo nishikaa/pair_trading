@@ -20,7 +20,91 @@ class ExecutePairTrading:
         self.final_pl=0
         self.final_pl_pct=0
 
+    def long_stock1_flag(self, stock1, stock2, idx):
+        """
+        This function is a ultility function to determine which stock to long/short given an entry signal.
+        It:
+            1. Takes the prices of two stocks, and the position where the entry signal appears 
+            2. Calculate the percentage deltas between the current price and the price 7 days ago (or the earliest record) for each stock
+
+        Then we will tell the ago to short the one with higher percentage delta and long the other.
+
+        The function returns a boolean on whether we should long the stock 1.
+        """
+        stock1_current = stock1[idx]
+        stock1_ref = stock1[max(0, idx-7)]
+
+        stock2_current = stock2[idx]
+        stock2_ref = stock2[max(0, idx-7)]
+
+        pct_delta_1 = (stock1_current/stock1_ref) - 1
+        pct_delta_2 = (stock2_current/stock2_ref) - 1
+
+        if pct_delta_1 >= pct_delta_2:
+            return False
+        else:
+            return True
+        
     def execute(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
+
+        abs_spread = abs(np.array(vec1) - np.array(vec2))
+        entry_thresh = self.abs_spread_mean + self.entry_signal*self.abs_spread_std
+        exit_thresh = self.abs_spread_mean + 0.1*self.abs_spread_std
+
+        # get the positions where the entry/exit signals appears
+        # prevent the signals to appear in the first value since we need to observe for at least one day
+        entry_signals = np.array([0]+[1 if abs_spread[i-1] >= entry_thresh else 0 for i in range(1, len(abs_spread))])
+        exit_signals = np.array([0]+[1 if abs_spread[i-1] <= exit_thresh else 0 for i in range(1, len(abs_spread))])
+
+        entry_positions = np.where(entry_signals == 1)[0]
+        exit_positions = np.where(exit_signals == 1)[0]
+
+        signal_pairs = []
+        for entry_pos in entry_positions:
+            # Find the first exit position that is greater than the entry position
+            next_exit_pos = exit_positions[exit_positions > entry_pos]
+            if next_exit_pos.size > 0:
+                exit_pos = next_exit_pos[0]
+            else:
+                # Default exit position if no exit signal is found after the entry signal
+                exit_pos = len(entry_signals) - 1
+            signal_pairs.append((entry_pos, exit_pos))
+
+        self.final_pl = 0
+        if len(signal_pairs) >0:
+            # Create a dataframe to store the results
+            temp_tb = pd.DataFrame(signal_pairs)
+            temp_tb.columns = ['entry_idx', 'exit_idx']
+            temp_tb = temp_tb.groupby('exit_idx').min().reset_index()
+
+            temp_tb['stock1_price_entry'] = vec1[temp_tb['entry_idx']] 
+            temp_tb['stock1_price_exit'] = vec1[temp_tb['exit_idx']] 
+            temp_tb['stock2_price_entry'] = vec2[temp_tb['entry_idx']] 
+            temp_tb['stock2_price_exit'] = vec2[temp_tb['exit_idx']] 
+            temp_tb['long_stock_1'] = [self.long_stock1_flag(vec1, vec2, x) for x in temp_tb.entry_idx]
+
+            pnls = []
+            for row in range(temp_tb.shape[0]):
+                long_pnl=0
+                short_pnl=0
+                if temp_tb.long_stock_1[row]:
+                    # calculate pnl when we long stock 1 and short stock 2
+                    long_pnl = base_fund * split * ((temp_tb.stock1_price_exit.values - temp_tb.stock1_price_entry.values)/temp_tb.stock1_price_entry.values)
+                    short_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_entry.values - temp_tb.stock2_price_exit.values)/temp_tb.stock2_price_entry.values)
+                else:
+                    # calculate pnl when we long stock 2 and short stock 1
+                    long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values - temp_tb.stock2_price_entry.values)/temp_tb.stock1_price_entry.values)
+                    short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values - temp_tb.stock1_price_exit.values)/temp_tb.stock2_price_entry.values)
+                pnls.append(long_pnl[0]+short_pnl[0])
+            temp_tb['pnl'] = pnls
+            self.final_pl = temp_tb.pnl.sum()
+        
+        self.final_pl_pct = self.final_pl/base_fund
+
+        return self
+
+
+    def execute_legacy(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
         
         abs_spread = abs(np.array(vec1) - np.array(vec2))
 
@@ -85,7 +169,6 @@ class ExecutePairTrading:
                     self.stock1_pl=0
                     self.stock2_pl=0
                      
-
         return self
 
 
@@ -135,12 +218,13 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     ])
     
     i = 1
+    # Get a list of unique dates for later use
+    all_dates = data['Date'].unique()    
+    
     for ticker1, ticker2 in combinations:
         if i%1000 == 0:
             print(f"Getting the {i}th pair")
         i+=1
-        # Get a list of unique dates for later use
-        all_dates = data['Date'].unique()    
         # Flag indicating whether the two tickers are from the same sector
         same_sector_flag = data[data.Ticker==ticker1]['GICS Sector'].values[0] == data[data.Ticker==ticker2]['GICS Sector'].values[0]
         same_sub_industry_flag = data[data.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data[data.Ticker==ticker2]['GICS Sub-Industry'].values[0]
@@ -153,8 +237,6 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
         if len(vec1_full) != len(vec2_full):
             # print(f"Incomplete data detected when generating for pair {ticker1} and {ticker2}. Skipping")
             continue
-
-
         # Number of days in the data
         num_days_total = len(vec1_full)
 
