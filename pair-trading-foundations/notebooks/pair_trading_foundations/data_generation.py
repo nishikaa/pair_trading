@@ -88,12 +88,12 @@ class ExecutePairTrading:
                     short_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_entry.values - temp_tb.stock2_price_exit.values)/temp_tb.stock2_price_entry.values)
                 else:
                     # calculate pnl when we long stock 2 and short stock 1
-                    long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values - temp_tb.stock2_price_entry.values)/temp_tb.stock1_price_entry.values)
-                    short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values - temp_tb.stock1_price_exit.values)/temp_tb.stock2_price_entry.values)
+                    long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values - temp_tb.stock2_price_entry.values)/temp_tb.stock2_price_entry.values)
+                    short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values - temp_tb.stock1_price_exit.values)/temp_tb.stock1_price_entry.values)
                 pnls.append(long_pnl[0]+short_pnl[0])
             temp_tb['pnl'] = pnls
             self.final_pl = temp_tb.pnl.sum()
-        
+            self.trade_execution_table = temp_tb
         self.final_pl_pct = self.final_pl/base_fund
 
         return self
@@ -227,12 +227,15 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     # Get a list of unique dates for later use
     all_dates = data['Date'].unique()    
 
-    ts2 =  time()
-    print(f"Took {ts2 - ts1} to initilize. Entering ticker pair loop")
+    ts_pre_loop =  time()
+    print(f"Took {ts_pre_loop - ts1} to initilize. Entering ticker pair loop")
     for ticker1, ticker2 in combinations:
         ts2 = time()
         if i%1000 == 0:
             print(f"Getting the {i}th pair")
+            ts1000 = time()
+            print(f'Used {ts1000-ts_pre_loop} for the 1000 pairs')
+            ts_pre_loop = time()
         i+=1
         # Flag indicating whether the two tickers are from the same sector
         same_sector_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sector'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sector'].values[0]
@@ -354,8 +357,8 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
                 ticker1,
                 ticker2,
                 all_dates[idx],
-                trade_l28_signal.final_pl_pct,
-                trade_all_signal.final_pl_pct
+                trade_all_signal.final_pl_pct,
+                trade_l28_signal.final_pl_pct
             ]
                       
             labels_tb.loc[len(labels_tb)] = label_list
