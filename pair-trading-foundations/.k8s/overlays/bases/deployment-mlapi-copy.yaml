@@ -1,0 +1,85 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlapi
+  labels:
+    app: mlapi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mlapi
+  template:
+    metadata:
+      labels:
+        app: mlapi
+    spec:
+      containers:
+      - name: mlapi
+        image: project:[TAG]
+        imagePullPolicy: Never
+        resources:
+          requests:
+            memory: 1000Mi
+          limits:
+            memory: 2000Mi
+        ports:
+        - containerPort: 8000
+        startupProbe:
+         httpGet:
+            path: /health
+            port: 8000
+         failureThreshold: 1
+         initialDelaySeconds: 30
+         periodSeconds: 2
+        readinessProbe:
+         timeoutSeconds: 1
+         successThreshold: 1
+         failureThreshold: 1
+         httpGet:
+            host:
+            scheme: HTTP
+            path: /health
+            port: 8000
+         initialDelaySeconds: 5
+         periodSeconds: 5        
+        livenessProbe:
+         httpGet:
+            path: /health
+            port: 8000
+         failureThreshold: 1
+         periodSeconds: 60
+         terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: init-verify-redis-dns
+          image: busybox
+          imagePullPolicy: Always
+          command:
+            [
+              "sh",
+              "-c",
+              "until nc -vz redis-service 6379; do echo 'waiting for redis service from DNS'; sleep 2; done",
+            ]
+        - name: init-verify-redis-ready
+          image: busybox
+          imagePullPolicy: Always
+          command:
+            [
+              "sh",
+              "-c",
+              "until (printf 'PING\r\n';) | nc redis-service 6379; do echo 'waiting for redis to PONG'; sleep 1; done",
+            ]
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mlapi
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mlapi
+  minReplicas: 1
+  maxReplicas: 200
+  targetCPUUtilizationPercentage: 100
