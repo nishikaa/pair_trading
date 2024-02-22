@@ -29,14 +29,32 @@ app = FastAPI(lifespan=lifespan)
 
 class FinanceModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    duration_in_days: list[int]
-    dollar_amt: list[int]
-    pass
+    duration_in_days: int = Field(ge=0)
+    dollar_amt: int = Field(ge=0)
+    
+    def to_numpy(self):
+        return np.array(
+            [
+                self.duration_in_days,
+                self.dollar_amt,
+            ]
+        )
+
+    @model_validator(mode="after")
+    def check_age(self) -> "Input":
+        # Check for valid
+        days = self.duration_in_days
+        dollars = self.dollar_amt
+        if days < 0:
+            raise ValueError("Invalid days")
+        if dollars < 0:
+            raise ValueError("Invalid dollars")
+        return self
+
 
 class FinanceModelResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     predictions : list[str]
-    pass
 
 
 @app.post("/mlapi-predict", response_model=FinanceModelResponse)
@@ -45,7 +63,7 @@ async def mlapi(finance_model: FinanceModelRequest):
     finance_model_output = []
     finance_model_output.append("None")
 
-    output = SentimentResponse(predictions=finance_model_output)
+    output = FinanceModelResponse(predictions=finance_model_output)
     # Return the pydantic output
     return output
 
