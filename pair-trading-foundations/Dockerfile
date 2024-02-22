@@ -41,4 +41,4 @@ WORKDIR ${APP_DIR}/
 COPY  . ./
 
 # Run service
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "mlapi.main:app", "--host", "0.0.0.0", "--port", "8000"]

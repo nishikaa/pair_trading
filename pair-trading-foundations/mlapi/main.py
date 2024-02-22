@@ -11,26 +11,15 @@ from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 from redis import asyncio
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
- 
-model_path = "./distilbert-base-uncased-finetuned-sst2"
-model = AutoModelForSequenceClassification.from_pretrained(model_path, local_files_only=True)
-tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
-classifier = pipeline(
-    task="text-classification",
-    model=model,
-    tokenizer=tokenizer,
-    device=-1,
-    top_k=None,
-)
 
 logger = logging.getLogger(__name__)
-LOCAL_REDIS_URL = "redis://redis-service:6379"
-# LOCAL_REDIS_URL = "redis://localhost:6379"
+# SERVICE_REDIS_URL = "redis://redis-service:6379"
+LOCAL_REDIS_URL = "redis://localhost:6379"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    HOST_URL = os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
+    REDIS_URL = LOCAL_REDIS_URL
+    HOST_URL = os.environ.get("REDIS_URL", REDIS_URL)
     logger.debug(HOST_URL)
     redis = asyncio.from_url(HOST_URL, encoding="utf8", decode_responses=True)
     FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
@@ -38,31 +27,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-class SentimentRequest(BaseModel):
+class FinanceModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    text: list[str]
+    duration_in_days: list[int]
+    dollar_amt: list[int]
     pass
 
-class Sentiment(BaseModel):
+class FinanceModelResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    label : str
-    score : float
-    pass
-
-class SentimentResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    predictions : list[list[Sentiment]]
+    predictions : list[str]
     pass
 
 
-@app.post("/project-predict", response_model=SentimentResponse)
+@app.post("/mlapi-predict", response_model=FinanceModelResponse)
 @cache(expire=60)
-async def predict(sentiments: SentimentRequest):
-    sentiments_output = []
-    for text in sentiments.text:
-        sentiments_output.append(classifier(text)[0])
+async def mlapi(finance_model: FinanceModelRequest):
+    finance_model_output = []
+    finance_model_output.append("None")
 
-    output = SentimentResponse(predictions=sentiments_output)
+    output = SentimentResponse(predictions=finance_model_output)
     # Return the pydantic output
     return output
 

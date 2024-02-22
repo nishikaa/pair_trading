@@ -1,5 +1,5 @@
 #!/bin/bash
-IMAGENAME=project
+IMAGENAME=mlapi
 TAG=latest
 NAMESPACE=michaeltay
 DEPLOYMENT=mlapi
@@ -55,8 +55,8 @@ while ! $finished; do
     fi
 done
 
-echo "testing '/project-predict' endpoint"
-curl -X 'POST' "http://localhost:8000/project-predict" -L -H 'Content-Type: application/json' -d \
+echo "testing '/mlapi-predict' endpoint"
+curl -X 'POST' "http://localhost:8000/mlapi-predict" -L -H 'Content-Type: application/json' -d \
 '
     {"text": ["I hate you.", "I love you."]}
 ' -w "\n"
