@@ -84,13 +84,13 @@ class ExecutePairTrading:
                 short_pnl=0
                 if temp_tb.long_stock_1[row]:
                     # calculate pnl when we long stock 1 and short stock 2
-                    long_pnl = base_fund * split * ((temp_tb.stock1_price_exit.values - temp_tb.stock1_price_entry.values)/temp_tb.stock1_price_entry.values)
-                    short_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_entry.values - temp_tb.stock2_price_exit.values)/temp_tb.stock2_price_entry.values)
+                    long_pnl = base_fund * split * ((temp_tb.stock1_price_exit.values[row] - temp_tb.stock1_price_entry.values[row])/temp_tb.stock1_price_entry.values[row])
+                    short_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_entry.values[row] - temp_tb.stock2_price_exit.values[row])/temp_tb.stock2_price_entry.values[row])
                 else:
                     # calculate pnl when we long stock 2 and short stock 1
-                    long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values - temp_tb.stock2_price_entry.values)/temp_tb.stock2_price_entry.values)
-                    short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values - temp_tb.stock1_price_exit.values)/temp_tb.stock1_price_entry.values)
-                pnls.append(long_pnl[0]+short_pnl[0])
+                    long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values[row] - temp_tb.stock2_price_entry.values[row])/temp_tb.stock2_price_entry.values[row])
+                    short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values[row] - temp_tb.stock1_price_exit.values[row])/temp_tb.stock1_price_entry.values[row])
+                pnls.append(long_pnl+short_pnl)
             temp_tb['pnl'] = pnls
             self.final_pl = temp_tb.pnl.sum()
             self.trade_execution_table = temp_tb
@@ -226,24 +226,34 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     i = 1
     # Get a list of unique dates for later use
     all_dates = data['Date'].unique()    
-
     ts_pre_loop =  time()
     print(f"Took {ts_pre_loop - ts1} to initilize. Entering ticker pair loop")
+
     for ticker1, ticker2 in combinations:
         ts2 = time()
-        if i%1000 == 0:
+        print(f"{i}th pair ------------------")
+
+        if i>500:
+            break
             print(f"Getting the {i}th pair")
             ts1000 = time()
             print(f'Used {ts1000-ts_pre_loop} for the 1000 pairs')
             ts_pre_loop = time()
         i+=1
+
+        start_ts = time()
         # Flag indicating whether the two tickers are from the same sector
         same_sector_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sector'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sector'].values[0]
         same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
+        end_ts = time()
+        print(f"Took {end_ts - start_ts} to calculate sector and sub ind flag")
 
+        start_ts = time()
         # The the full history of the data
         vec1_full = data['Close'][data.Ticker==ticker1].values
         vec2_full = data['Close'][data.Ticker==ticker2].values
+        end_ts = time()
+        print(f"Took {end_ts - start_ts} to get the price history for the tickers")
 
         # Check if a ticker has incomplete data
         if len(vec1_full) != len(vec2_full):
@@ -251,20 +261,25 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
             continue
         # Number of days in the data
         num_days_total = len(vec1_full)
+        end_ts = time()
+        print(f"Took {end_ts - start_ts} to data set filtering after entering pair loop")
 
+        start_ts = time()
         # Keep x days for training and y days for label calculation
-        possible_indices_to_sample = list(range(training_len, num_days_total-test_len-1))
-        sampled_indices = random.choices(possible_indices_to_sample, k=sample_size_per_pair)
+        # possible_indices_to_sample = list(range(training_len, num_days_total-test_len-1))
+        # sampled_indices = random.choices(possible_indices_to_sample, k=sample_size_per_pair)
 
-        ts3 = time()
-        # print(f"Took {ts3 - ts2} to get stats for one pair. Entering sampling")
+        end_ts = time()
+        print(f"Took {end_ts - start_ts} to indinces sampling after entering pair loop")
+
+        
         for idx in sampled_indices:
-            ts3 = time()
             if verbose:
                 print(f"Sampled date is {all_dates[idx]}")
                 print(f"Dataset1 starts from {all_dates[idx-500]} to {all_dates[idx]}(exclusive)")
                 print(f"Dataset2 starts from {all_dates[idx]} (inclusive) to {all_dates[idx+120]}")
 
+            start_ts = time()
             # Previous N trading days
             vec1_sub1 = vec1_full[(idx - training_len):idx]
             vec2_sub1 = vec2_full[(idx - training_len):idx]
@@ -273,11 +288,22 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
             vec1_sub2 = vec1_full[idx:(idx+test_len)]
             vec2_sub2 = vec2_full[idx:(idx+test_len)]
             
+            end_ts = time()
+            print(f"{end_ts - start_ts} to get the vector 1 and vector 2")
+
+            start_ts = time()
             # Cosine sim
             cos_sim = np.dot(vec1_sub1, vec2_sub1) / (norm(vec1_sub1) * norm(vec2_sub1))
+            end_ts = time()
+            print(f"{end_ts - start_ts} to calculate cosine sim")
+
+            start_ts = time()
             # Correlation coef
             corr_coef = np.corrcoef(vec1_sub1, vec2_sub1)[0, 1]
+            end_ts = time()
+            print(f"{end_ts - start_ts} to calculate correlation coef")
 
+            start_ts = time()
             # Absolute value of the difference of the two stocks
             abs_spread = abs(vec1_sub1 - vec2_sub1)
             abs_spread_mean = np.mean(abs_spread)
@@ -289,19 +315,25 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
 
             # normalize
             spread_normed = (abs_spread - abs_spread_mean)/abs_spread_std
+            end_ts = time()
+            print(f"{end_ts - start_ts} to calculate simple stats from the vectors")
 
             # distribution of abs std
             ## This is to capture when we should expect the reverting to mean to happen for this stock
+            start_ts = time()
             abs_spread_normed_max = max(abs(spread_normed))
             abs_spread_normed_90th = np.percentile(abs(spread_normed),90)
             abs_spread_normed_75th = np.percentile(abs(spread_normed),75)
             abs_spread_normed_median = np.percentile(abs(spread_normed),50)
+            end_ts = time()
+            print(f"{end_ts - start_ts} to calculate percentiles")
 
             # latest 7 day/14 day avg normalized spread
             ## These could help predict whether a trading signal will appear
             abs_spread_normed_l7_avg = abs(np.mean(spread_normed[-7:]))
             abs_spread_normed_l14_avg = abs(np.mean(spread_normed[-14:]))
 
+            start_ts = time()
             ## These are information we record for each iteration for debugging an analysis
             recorded_info = [
                 ticker1, 
@@ -333,7 +365,10 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
             # Append the generated data as new rows to the tables
             recorded_info_tb.loc[len(recorded_info_tb)] = recorded_info
             features_tb.loc[len(features_tb)] = features
+            end_ts = time()
+            print(f"{end_ts - start_ts} to append to output dataframe")
 
+            start_ts = time()
             # Calculate the labels
             trade_l28_signal = execution_class(
                     abs_spread_mean_l28,
@@ -359,12 +394,11 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
                 all_dates[idx],
                 trade_all_signal.final_pl_pct,
                 trade_l28_signal.final_pl_pct
-            ]
-                      
+            ] 
             labels_tb.loc[len(labels_tb)] = label_list
+            end_ts = time()
+            print(f"{end_ts - start_ts} to append to calclate the label")
 
-        ts4 = time()
-        # print(f"Took {ts4 - ts3} to finish sampling. Going to next pair")
     ts_final = time()
     print(f"Took {ts_final - ts1} to finish")
     return recorded_info_tb, features_tb, labels_tb
