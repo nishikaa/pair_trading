@@ -40,7 +40,7 @@ class ExecutePairTrading:
         else:
             return True
         
-    def execute(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
+    def execute(self, vec1, vec2, dates, base_fund=100, split=0.5, verbose=False):
 
         abs_spread = abs(np.array(vec1) - np.array(vec2))
         entry_thresh = self.abs_spread_mean + self.entry_signal*self.abs_spread_std
@@ -79,6 +79,7 @@ class ExecutePairTrading:
             temp_tb['long_stock_1'] = [self.long_stock1_flag(vec1, vec2, x) for x in temp_tb.entry_idx]
 
             pnls = []
+            trade_descriptions = []
             for row in range(temp_tb.shape[0]):
                 long_pnl=0
                 short_pnl=0
@@ -92,6 +93,8 @@ class ExecutePairTrading:
                     short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values[row] - temp_tb.stock1_price_exit.values[row])/temp_tb.stock1_price_entry.values[row])
                 pnls.append(long_pnl+short_pnl)
             temp_tb['pnl'] = pnls
+            temp_tb['entry_dates'] = temp_tb.entry_idx.apply(lambda x: dates[x])
+            temp_tb['exit_dates'] = temp_tb.exit_idx.apply(lambda x: dates[x])
             self.final_pl = temp_tb.pnl.sum()
             self.trade_execution_table = temp_tb
         self.final_pl_pct = self.final_pl/base_fund
@@ -172,7 +175,20 @@ class ExecutePairTrading:
         return self
 
 
-def generate_training_data(data, training_len=500, test_len=120, sample_size_per_pair=100, verbose=False, execution_class=ExecutePairTrading):
+def cos_sim(rs,df):
+            rows = df.loc[rs.index]
+            vec1_sub1 = rows['Close_P1']
+            vec2_sub1 = rows['Close_P2']
+            return np.dot(vec1_sub1, vec2_sub1) / (norm(vec1_sub1) * norm(vec2_sub1))
+
+# Correlation coef
+def corr_coef(rs,df):
+    rows = df.loc[rs.index]
+    vec1_sub1 = rows['Close_P1']
+    vec2_sub1 = rows['Close_P2']
+    return np.corrcoef(vec1_sub1, vec2_sub1)[0, 1]
+
+def generate_training_data(data, training_len=500, test_len=120, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading):
     """
     data: A pandas dataframe from the GetSP500Data module in ultils
     """
@@ -189,39 +205,24 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
     print(f"{len(combinations)} stock pairs detected")
 
     # Initiate data tables to store the generated results
-    recorded_info_tb = pd.DataFrame(columns=[
-            'ticker1', 
-            'ticker2',
-            'target_date',
-            'abs_spread_mean',
-            'abs_spread_std',
-            'abs_spread_mean_l28',
-            'abs_spread_std_l28',
-    ])
+    feature_columns = [
+        'Date', 'Ticker_P1', 'Close_P1', 'Ticker_P2', 'Close_P2', 'abs_spread',
+       'abs_spread_mean', 'abs_spread_std', 'abs_spread_mean_l28',
+       'abs_spread_std_l28', 'spread_normed', 'abs_spread_normed_max',
+       'abs_spread_normed_90th', 'abs_spread_normed_75th',
+       'abs_spread_normed_median', 'abs_spread_normed_l7_avg',
+       'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef'
+    ]
+    label_columns = [
+        'Date', 'Ticker_P1', 'Ticker_P2', 'pnls'
+    ]
+    metadata_tb_columns = [
+         'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'trade_executions'
+    ]
 
-    features_tb = pd.DataFrame(columns=[
-        'ticker1', 
-        'ticker2',
-        'target_date',
-        'same_sector_flag',
-        'same_sub_industry_flag',
-        'cos_sim',
-        'corr_coef',
-        'abs_spread_normed_max',
-        'abs_spread_normed_90th',
-        'abs_spread_normed_75th',
-        'abs_spread_normed_median',
-        'abs_spread_normed_l7_avg',
-        'abs_spread_normed_l14_avg'
-    ])
-
-    labels_tb = pd.DataFrame(columns=[
-        'ticker1', 
-        'ticker2',
-        'target_date',
-        'total_pnl',
-        'total_pnl_l28_mean_std'
-    ])
+    features_tb = pd.DataFrame(columns=feature_columns)
+    labels_tb = pd.DataFrame(columns=label_columns)
+    pnl_metadata_tb = pd.DataFrame(columns=metadata_tb_columns)
     
     i = 1
     # Get a list of unique dates for later use
@@ -231,175 +232,118 @@ def generate_training_data(data, training_len=500, test_len=120, sample_size_per
 
     for ticker1, ticker2 in combinations:
         ts2 = time()
-        print(f"{i}th pair ------------------")
+        if verbose:
+            print(f"{i}th pair ------------------")
 
-        if i>500:
-            break
+        if i%1000==0:
+            # break
             print(f"Getting the {i}th pair")
             ts1000 = time()
             print(f'Used {ts1000-ts_pre_loop} for the 1000 pairs')
             ts_pre_loop = time()
         i+=1
 
-        start_ts = time()
         # Flag indicating whether the two tickers are from the same sector
         same_sector_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sector'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sector'].values[0]
         same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
-        end_ts = time()
-        print(f"Took {end_ts - start_ts} to calculate sector and sub ind flag")
-
-        start_ts = time()
+        
         # The the full history of the data
-        vec1_full = data['Close'][data.Ticker==ticker1].values
-        vec2_full = data['Close'][data.Ticker==ticker2].values
-        end_ts = time()
-        print(f"Took {end_ts - start_ts} to get the price history for the tickers")
-
+        vec1_full = data[['Ticker','Date','Close']][data.Ticker==ticker1].reset_index(drop=True)
+        vec2_full = data[['Ticker','Date','Close']][data.Ticker==ticker2].reset_index(drop=True)
+        
         # Check if a ticker has incomplete data
         if len(vec1_full) != len(vec2_full):
             # print(f"Incomplete data detected when generating for pair {ticker1} and {ticker2}. Skipping")
             continue
-        # Number of days in the data
-        num_days_total = len(vec1_full)
-        end_ts = time()
-        print(f"Took {end_ts - start_ts} to data set filtering after entering pair loop")
+
+        # Create a temp table for the features
+        df = pd.merge(vec1_full,vec2_full,on='Date',how='left',suffixes=['_P1','_P2'])
 
         start_ts = time()
-        # Keep x days for training and y days for label calculation
-        # possible_indices_to_sample = list(range(training_len, num_days_total-test_len-1))
-        # sampled_indices = random.choices(possible_indices_to_sample, k=sample_size_per_pair)
+        # Calculate the features
+        df['same_sector_flag'] = same_sector_flag
+        df['same_sub_industry_flag'] = same_sub_industry_flag
+        df['abs_spread'] = (df['Close_P1'] - df['Close_P2']).abs()
+        df['abs_spread_mean'] = df.rolling(training_len).abs_spread.mean()
+        df['abs_spread_std'] = df.rolling(training_len).abs_spread.std()
+        df['abs_spread_mean_l28'] = df.rolling(28).abs_spread.mean()
+        df['abs_spread_std_l28'] = df.rolling(28).abs_spread.std()
+        df['spread_normed'] = (df['abs_spread']-df['abs_spread_mean'])/df['abs_spread_std']
+        df['abs_spread_normed_max'] = df.spread_normed.abs().rolling(training_len).max()
+        df['abs_spread_normed_90th'] = df.spread_normed.abs().rolling(training_len).quantile(0.9)
+        df['abs_spread_normed_75th'] = df.spread_normed.abs().rolling(training_len).quantile(0.75)
+        df['abs_spread_normed_median'] = df.spread_normed.abs().rolling(training_len).median()
+        df['abs_spread_normed_l7_avg'] = df.spread_normed.abs().rolling(7).mean()
+        df['abs_spread_normed_l14_avg'] = df.spread_normed.abs().rolling(14).mean()
+        df['cos_sim'] = df['Close_P1'].rolling(training_len).apply(cos_sim, args=(df,))
+        df['corr_coef'] = df['Close_P1'].rolling(training_len).apply(corr_coef, args=(df,))
 
         end_ts = time()
-        print(f"Took {end_ts - start_ts} to indinces sampling after entering pair loop")
+        if verbose:
+            print(f"{end_ts - start_ts} to calculate features")
 
-        
-        for idx in sampled_indices:
+        ## Appending the tables
+        features_tb = pd.concat(
+            [
+                features_tb,
+                df[
+                    feature_columns
+                ]
+            ]
+        )
+
+        # Calculate the labels
+        if calculate_label:
+            start_ts = time()
+            pnls = []
+            trading_tables = []
+            for idx in range(df.shape[0]):
+                if (idx < 501) | (idx > df.shape[0]-119):
+                    pnls.append(np.nan)
+                    trading_tables.append(np.nan)
+                else:
+                    previous_row = df.loc[idx-1]
+                    result=execution_class(
+                                    previous_row.abs_spread_mean,
+                                    previous_row.abs_spread_std,
+                                    entry_signal=1.5
+                                ).execute(
+                                    vec1=df.loc[idx:(idx+120)]['Close_P1'].values,
+                                    vec2=df.loc[idx:(idx+120)]['Close_P2'].values,
+                                    dates=df.loc[idx:(idx+120)]['Date'].values
+                                )
+                    pnls.append(result.final_pl_pct)
+                    if result.final_pl_pct != 0:
+                        trading_tables.append(result.trade_execution_table)
+                    else:
+                        trading_tables.append(None)
+
+            end_ts = time()
             if verbose:
-                print(f"Sampled date is {all_dates[idx]}")
-                print(f"Dataset1 starts from {all_dates[idx-500]} to {all_dates[idx]}(exclusive)")
-                print(f"Dataset2 starts from {all_dates[idx]} (inclusive) to {all_dates[idx+120]}")
+                print(f"{end_ts - start_ts} to calculate labels")
 
-            start_ts = time()
-            # Previous N trading days
-            vec1_sub1 = vec1_full[(idx - training_len):idx]
-            vec2_sub1 = vec2_full[(idx - training_len):idx]
+            df['pnls'] = pnls
+            df['trade_executions'] = trading_tables
 
-            # Next N trading days
-            vec1_sub2 = vec1_full[idx:(idx+test_len)]
-            vec2_sub2 = vec2_full[idx:(idx+test_len)]
-            
-            end_ts = time()
-            print(f"{end_ts - start_ts} to get the vector 1 and vector 2")
+            labels_tb = pd.concat(
+                [
+                    labels_tb,
+                    df[
+                        label_columns
+                    ]
+                ]
+            )
 
-            start_ts = time()
-            # Cosine sim
-            cos_sim = np.dot(vec1_sub1, vec2_sub1) / (norm(vec1_sub1) * norm(vec2_sub1))
-            end_ts = time()
-            print(f"{end_ts - start_ts} to calculate cosine sim")
-
-            start_ts = time()
-            # Correlation coef
-            corr_coef = np.corrcoef(vec1_sub1, vec2_sub1)[0, 1]
-            end_ts = time()
-            print(f"{end_ts - start_ts} to calculate correlation coef")
-
-            start_ts = time()
-            # Absolute value of the difference of the two stocks
-            abs_spread = abs(vec1_sub1 - vec2_sub1)
-            abs_spread_mean = np.mean(abs_spread)
-            abs_spread_std = np.std(abs_spread)
-
-            # Sometimes, historical data might be too strict to get a signal for trade in
-            abs_spread_mean_l28 = np.mean(abs_spread[-28:])
-            abs_spread_std_l28 = np.std(abs_spread[-28:])
-
-            # normalize
-            spread_normed = (abs_spread - abs_spread_mean)/abs_spread_std
-            end_ts = time()
-            print(f"{end_ts - start_ts} to calculate simple stats from the vectors")
-
-            # distribution of abs std
-            ## This is to capture when we should expect the reverting to mean to happen for this stock
-            start_ts = time()
-            abs_spread_normed_max = max(abs(spread_normed))
-            abs_spread_normed_90th = np.percentile(abs(spread_normed),90)
-            abs_spread_normed_75th = np.percentile(abs(spread_normed),75)
-            abs_spread_normed_median = np.percentile(abs(spread_normed),50)
-            end_ts = time()
-            print(f"{end_ts - start_ts} to calculate percentiles")
-
-            # latest 7 day/14 day avg normalized spread
-            ## These could help predict whether a trading signal will appear
-            abs_spread_normed_l7_avg = abs(np.mean(spread_normed[-7:]))
-            abs_spread_normed_l14_avg = abs(np.mean(spread_normed[-14:]))
-
-            start_ts = time()
-            ## These are information we record for each iteration for debugging an analysis
-            recorded_info = [
-                ticker1, 
-                ticker2,
-                all_dates[idx],
-                abs_spread_mean,
-                abs_spread_std,
-                abs_spread_mean_l28,
-                abs_spread_std_l28
-            ]
-
-            ## There are features that goes into the model (not ticker1, ticker2, the target date, which are used to join the tables)
-            features = [
-                ticker1, 
-                ticker2,
-                all_dates[idx],
-                same_sector_flag,
-                same_sub_industry_flag,
-                cos_sim,
-                corr_coef,
-                abs_spread_normed_max,
-                abs_spread_normed_90th,
-                abs_spread_normed_75th,
-                abs_spread_normed_median,
-                abs_spread_normed_l7_avg,
-                abs_spread_normed_l14_avg
-            ]
-
-            # Append the generated data as new rows to the tables
-            recorded_info_tb.loc[len(recorded_info_tb)] = recorded_info
-            features_tb.loc[len(features_tb)] = features
-            end_ts = time()
-            print(f"{end_ts - start_ts} to append to output dataframe")
-
-            start_ts = time()
-            # Calculate the labels
-            trade_l28_signal = execution_class(
-                    abs_spread_mean_l28,
-                    abs_spread_std_l28,
-                    entry_signal=1.5
-                ).execute(
-                    vec1=vec1_sub2,
-                    vec2=vec2_sub2
-                )
-            
-            trade_all_signal = execution_class(
-                    abs_spread_mean,
-                    abs_spread_std,
-                    entry_signal=1.5
-                ).execute(
-                    vec1=vec1_sub2,
-                    vec2=vec2_sub2
-                )
-
-            label_list = [
-                ticker1,
-                ticker2,
-                all_dates[idx],
-                trade_all_signal.final_pl_pct,
-                trade_l28_signal.final_pl_pct
-            ] 
-            labels_tb.loc[len(labels_tb)] = label_list
-            end_ts = time()
-            print(f"{end_ts - start_ts} to append to calclate the label")
-
+            pnl_metadata_tb = pd.concat(
+                [
+                    pnl_metadata_tb,
+                    df[
+                        metadata_tb_columns
+                    ]
+                ]
+            )
+        
     ts_final = time()
     print(f"Took {ts_final - ts1} to finish")
-    return recorded_info_tb, features_tb, labels_tb
+    return features_tb, labels_tb, pnl_metadata_tb
 
