@@ -248,8 +248,10 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
         
         # The the full history of the data
-        vec1_full = data[['Ticker','Date','Close']][data.Ticker==ticker1].reset_index(drop=True)
-        vec2_full = data[['Ticker','Date','Close']][data.Ticker==ticker2].reset_index(drop=True)
+        vec1_full = data[['Ticker','Date','Adj Close']][data.Ticker==ticker1].reset_index(drop=True)
+        vec2_full = data[['Ticker','Date','Adj Close']][data.Ticker==ticker2].reset_index(drop=True)
+        vec1_full.columns = ['Ticker','Date','Adj Close']
+        vec2_full.columns = ['Ticker','Date','Adj Close']
         
         # Check if a ticker has incomplete data
         if len(vec1_full) != len(vec2_full):
