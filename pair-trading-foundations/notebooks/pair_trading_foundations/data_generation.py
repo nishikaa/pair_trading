@@ -47,9 +47,8 @@ class ExecutePairTrading:
         exit_thresh = self.abs_spread_mean + 0.1*self.abs_spread_std
 
         # get the positions where the entry/exit signals appears
-        # prevent the signals to appear in the first value since we need to observe for at least one day
-        entry_signals = np.array([0]+[1 if abs_spread[i-1] >= entry_thresh else 0 for i in range(1, len(abs_spread))])
-        exit_signals = np.array([0]+[1 if abs_spread[i-1] <= exit_thresh else 0 for i in range(1, len(abs_spread))])
+        entry_signals = np.array([1 if abs_spread[i-1] >= entry_thresh else 0 for i in range(0, len(abs_spread))])
+        exit_signals = np.array([1 if abs_spread[i-1] <= exit_thresh else 0 for i in range(0, len(abs_spread))])
 
         entry_positions = np.where(entry_signals == 1)[0]
         exit_positions = np.where(exit_signals == 1)[0]
@@ -188,7 +187,7 @@ def corr_coef(rs,df):
     vec2_sub1 = rows['Close_P2']
     return np.corrcoef(vec1_sub1, vec2_sub1)[0, 1]
 
-def generate_training_data(data, training_len=500, test_len=120, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading):
+def generate_training_data(data, training_len=500, test_len=120, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading, combinations=None):
     """
     data: A pandas dataframe from the GetSP500Data module in ultils
     """
@@ -199,9 +198,10 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
     # Get a smaller version of the data for look-ups
     data_agg = data[['Ticker','GICS Sector', 'GICS Sub-Industry']].drop_duplicates().reset_index(drop=True)
 
-    # Get all the combinations of tickers
-    tickers = list(data_agg.Ticker.values)
-    combinations = list(itertools.combinations(tickers, 2))
+    if combinations is None:
+        # Get all the combinations of tickers
+        tickers = list(data_agg.Ticker.values)
+        combinations = list(itertools.combinations(tickers, 2))
     print(f"{len(combinations)} stock pairs detected")
 
     # Initiate data tables to store the generated results
@@ -235,7 +235,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         if verbose:
             print(f"{i}th pair ------------------")
 
-        if i%1000==0:
+        if (i>0) & (i%5000==0):
             # break
             print(f"Getting the {i}th pair")
             ts1000 = time()
@@ -250,8 +250,8 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         # The the full history of the data
         vec1_full = data[['Ticker','Date','Adj Close']][data.Ticker==ticker1].reset_index(drop=True)
         vec2_full = data[['Ticker','Date','Adj Close']][data.Ticker==ticker2].reset_index(drop=True)
-        vec1_full.columns = ['Ticker','Date','Adj Close']
-        vec2_full.columns = ['Ticker','Date','Adj Close']
+        vec1_full.columns = ['Ticker','Date','Close']
+        vec2_full.columns = ['Ticker','Date','Close']
         
         # Check if a ticker has incomplete data
         if len(vec1_full) != len(vec2_full):
@@ -300,19 +300,19 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
             pnls = []
             trading_tables = []
             for idx in range(df.shape[0]):
-                if (idx < 501) | (idx > df.shape[0]-119):
+                if (idx < 500) | (idx > df.shape[0]-120):
                     pnls.append(np.nan)
                     trading_tables.append(np.nan)
                 else:
-                    previous_row = df.loc[idx-1]
+                    current_row = df.loc[idx]
                     result=execution_class(
-                                    previous_row.abs_spread_mean,
-                                    previous_row.abs_spread_std,
+                                    current_row.abs_spread_mean,
+                                    current_row.abs_spread_std,
                                     entry_signal=1.5
                                 ).execute(
-                                    vec1=df.loc[idx:(idx+120)]['Close_P1'].values,
-                                    vec2=df.loc[idx:(idx+120)]['Close_P2'].values,
-                                    dates=df.loc[idx:(idx+120)]['Date'].values
+                                    vec1=df.loc[(idx+1):(idx+121)]['Close_P1'].values,
+                                    vec2=df.loc[(idx+1):(idx+121)]['Close_P2'].values,
+                                    dates=df.loc[(idx+1):(idx+121)]['Date'].values
                                 )
                     pnls.append(result.final_pl_pct)
                     if result.final_pl_pct != 0:
