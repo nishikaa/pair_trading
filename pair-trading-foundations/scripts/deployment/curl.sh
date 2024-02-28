@@ -17,9 +17,9 @@ while ! $finished; do
     fi
 done
 
-# Run project-predict endpoint
-echo "testing '/project-predict' endpoint"
-curl -X 'POST' "https://${DOMAIN}/project-predict" -L -H 'Content-Type: application/json' -d \
+# Run mlapi-predict endpoint
+echo "testing '/mlapi-predict' endpoint"
+curl -X 'POST' "https://${DOMAIN}/mlapi-predict" -L -H 'Content-Type: application/json' -d \
 '
 	{"text": ["I hate you.", "I love you."]}
 ' -w "\n"

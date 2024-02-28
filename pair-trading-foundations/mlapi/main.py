@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 # SERVICE_REDIS_URL = "redis://redis-service:6379"
 LOCAL_REDIS_URL = "redis://localhost:6379"
 
+# app = FastAPI()
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    REDIS_URL = LOCAL_REDIS_URL
-    HOST_URL = os.environ.get("REDIS_URL", REDIS_URL)
+async def lifespan(app: FastAPI): 
+    HOST_URL = os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
     logger.debug(HOST_URL)
     redis = asyncio.from_url(HOST_URL, encoding="utf8", decode_responses=True)
     FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
@@ -58,7 +59,7 @@ class FinanceModelResponse(BaseModel):
 
 
 @app.post("/mlapi-predict", response_model=FinanceModelResponse)
-@cache(expire=60)
+# @cache(expire=60)
 async def mlapi(finance_model: FinanceModelRequest):
     finance_model_output = []
     finance_model_output.append("None")
