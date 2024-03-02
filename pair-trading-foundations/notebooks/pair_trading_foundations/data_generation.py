@@ -66,11 +66,15 @@ class ExecutePairTrading:
             signal_pairs.append((entry_pos, exit_pos))
 
         self.final_pl = 0
+        self.num_entries = 0
         if len(signal_pairs) >0:
             # Create a dataframe to store the results
             temp_tb = pd.DataFrame(signal_pairs)
             temp_tb.columns = ['entry_idx', 'exit_idx']
             temp_tb = temp_tb.groupby('exit_idx').min().reset_index()
+
+            # record the number of entries detected
+            self.num_entries = temp_tb.shape[0]
 
             temp_tb['stock1_price_entry'] = vec1[temp_tb['entry_idx']] 
             temp_tb['stock1_price_exit'] = vec1[temp_tb['exit_idx']] 
@@ -215,7 +219,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
        'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef'
     ]
     label_columns = [
-        'Date', 'Ticker_P1', 'Ticker_P2', 'pnls'
+        'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'num_entries'
     ]
     metadata_tb_columns = [
          'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'trade_executions'
@@ -299,11 +303,13 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         if calculate_label:
             start_ts = time()
             pnls = []
+            num_entries = []
             trading_tables = []
             for idx in range(df.shape[0]):
                 if (idx < 500) | (idx > df.shape[0]-119):
                     pnls.append(np.nan)
                     trading_tables.append(np.nan)
+                    num_entries.append(np.nan)
                 else:
                     current_row = df.loc[idx]
                     result=execution_class(
@@ -316,6 +322,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
                                     dates=df.loc[(idx+1):(idx+121)]['Date'].values
                                 )
                     pnls.append(result.final_pl_pct)
+                    num_entries.append(result.num_entries)
                     if result.final_pl_pct != 0:
                         trading_tables.append(result.trade_execution_table)
                     else:
