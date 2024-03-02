@@ -47,11 +47,12 @@ class ExecutePairTrading:
         exit_thresh = self.abs_spread_mean + 0.1*self.abs_spread_std
 
         # get the positions where the entry/exit signals appears
-        entry_signals = np.array([1 if abs_spread[i-1] >= entry_thresh else 0 for i in range(0, len(abs_spread))])
-        exit_signals = np.array([1 if abs_spread[i-1] <= exit_thresh else 0 for i in range(0, len(abs_spread))])
+        entry_signals = np.array([1 if abs_spread[i] >= entry_thresh else 0 for i in range(0, len(abs_spread))])
+        exit_signals = np.array([1 if abs_spread[i] <= exit_thresh else 0 for i in range(0, len(abs_spread))])
 
-        entry_positions = np.where(entry_signals == 1)[0]
-        exit_positions = np.where(exit_signals == 1)[0]
+        # when an entry is detected, execute the next day
+        entry_positions = np.where(entry_signals == 1)[0]+1
+        exit_positions = np.where(exit_signals == 1)[0]+1
 
         signal_pairs = []
         for entry_pos in entry_positions:
@@ -235,11 +236,11 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         if verbose:
             print(f"{i}th pair ------------------")
 
-        if (i>0) & (i%5000==0):
+        if (i>0) & (i%100==0):
             # break
             print(f"Getting the {i}th pair")
             ts1000 = time()
-            print(f'Used {ts1000-ts_pre_loop} for the 1000 pairs')
+            print(f'Used {ts1000-ts_pre_loop} for the 100 pairs')
             ts_pre_loop = time()
         i+=1
 
@@ -300,7 +301,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
             pnls = []
             trading_tables = []
             for idx in range(df.shape[0]):
-                if (idx < 500) | (idx > df.shape[0]-120):
+                if (idx < 500) | (idx > df.shape[0]-119):
                     pnls.append(np.nan)
                     trading_tables.append(np.nan)
                 else:
