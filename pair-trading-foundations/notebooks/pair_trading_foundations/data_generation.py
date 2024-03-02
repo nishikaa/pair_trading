@@ -142,7 +142,8 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
 
     # Initiate data tables to store the generated results
     feature_columns = [
-        'Date', 'Ticker_P1', 'Close_P1', 'Ticker_P2', 'Close_P2', 'abs_spread',
+        'Date', 'Ticker_P1', 'Close_P1', 'Ticker_P2', 'Close_P2', 
+        'High_P1', 'High_P2', 'Low_P1', 'Low_P2', 'Volume_P1', 'Volume_P2', 'abs_spread',
        'abs_spread_mean', 'abs_spread_std', 'abs_spread_mean_l28',
        'abs_spread_std_l28', 'spread_normed', 'abs_spread_normed_max',
        'abs_spread_normed_90th', 'abs_spread_normed_75th',
@@ -184,10 +185,10 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
         
         # The the full history of the data
-        vec1_full = data[['Ticker','Date','Adj Close']][data.Ticker==ticker1].reset_index(drop=True)
-        vec2_full = data[['Ticker','Date','Adj Close']][data.Ticker==ticker2].reset_index(drop=True)
-        vec1_full.columns = ['Ticker','Date','Close']
-        vec2_full.columns = ['Ticker','Date','Close']
+        vec1_full = data[['Ticker','Date', 'High', 'Low', 'Volume','Adj Close']][data.Ticker==ticker1].reset_index(drop=True)
+        vec2_full = data[['Ticker','Date', 'High', 'Low', 'Volume','Adj Close']][data.Ticker==ticker2].reset_index(drop=True)
+        vec1_full.columns = ['Ticker','Date', 'High', 'Low', 'Volume','Close']
+        vec2_full.columns = ['Ticker','Date', 'High', 'Low', 'Volume','Close']
         
         # Check if a ticker has incomplete data
         if len(vec1_full) != len(vec2_full):
