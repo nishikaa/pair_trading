@@ -54,6 +54,11 @@ class ExecutePairTrading:
         entry_positions = np.where(entry_signals == 1)[0]+1
         exit_positions = np.where(exit_signals == 1)[0]+1
 
+        # Sometimes the entry signal is detected is on the last day of the testing window, which makes the entry position out of bound
+        length_spread = len(abs_spread)
+        entry_positions = entry_positions[entry_positions<length_spread]
+        exit_positions = exit_positions[exit_positions<length_spread]
+
         signal_pairs = []
         for entry_pos in entry_positions:
             # Find the first exit position that is greater than the entry position
@@ -62,7 +67,7 @@ class ExecutePairTrading:
                 exit_pos = next_exit_pos[0]
             else:
                 # Default exit position if no exit signal is found after the entry signal
-                exit_pos = len(entry_signals) - 1
+                exit_pos = length_spread - 1
             signal_pairs.append((entry_pos, exit_pos))
 
         self.final_pl = 0
@@ -104,81 +109,7 @@ class ExecutePairTrading:
         self.final_pl_pct = self.final_pl/base_fund
 
         return self
-
-
-    def execute_day_by_day(self, vec1, vec2, base_fund=100, split=0.5, verbose=False):
-
-        self.stock1_position=None
-        self.stock2_position=None 
-        self.stock1_long=None
-        self.stock1_pl=0
-        self.stock2_pl=0
-        abs_spread = abs(np.array(vec1) - np.array(vec2))
-
-        entry_signal=False
-        for i in range(len(abs_spread)):
-            # if currently not holding any position
-            if self.stock1_position is None:
-                
-                ## if an entry signal was not generated from the previous trading date
-                if not entry_signal:
-                    # Check if entry signal appears in the current date
-                    if abs_spread[i] >= self.abs_spread_mean + self.entry_signal*self.abs_spread_std:
-                        entry_signal=True
-                    
-                ## If an entry signal was generated from the previous trading date, execute the strategy
-                else:
-                    self.stock1_position=vec1[i]
-                    self.stock2_position=vec2[i]
-                    
-                    if vec1[i] > vec2[i]:
-                        self.stock1_long=False
-                        if verbose:
-                            print(f"Entered long position at {vec1[i]} for stock1")
-                            print(f"Entered short position at {vec2[i]} for stock2")
-                    else:
-                        self.stock1_long=True
-                        if verbose:
-                            print(f"Entered short position at {vec1[i]} for stock1")
-                            print(f"Entered long position at {vec2[i]} for stock2")
-
-            # if holding a position, check if need to exit and update pnl
-            else:
-                # calculate pnl
-                if self.stock1_long:
-                    # calculate pnl when we long stock 1 and short stock 2
-                    self.stock1_pl = base_fund * split * ((vec1[i] - self.stock1_position)/self.stock1_position)
-                    self.stock2_pl = base_fund * (1-split) * ((self.stock2_position - vec2[i])/self.stock2_position)
-                else:
-                    # calculate pnl when we long stock 2 and short stock 1
-                    self.stock1_pl = base_fund *split* (self.stock1_position - vec1[i])/self.stock1_position
-                    self.stock2_pl = base_fund *(1-split)* (vec2[i] - self.stock2_position)/self.stock2_position    
-
-                # when the absolute spread is less than 0.1 of the std, exit the positions
-                ## to-do in the future - this calculation is in-accurate as the exit should be executed the next
-                ## trading day, when the pnl would be differentt.
-                if abs_spread[i] <= self.abs_spread_mean + 0.1 * self.abs_spread_std:
-                    # reset the params
-                    entry_signal=False
-                    self.stock1_position=None
-                    self.stock2_position=None
-                    self.stock1_long=None
-
-                    if verbose:
-                        print(f"Closed stock1 position at {vec1[i]}. Close stock2 position at {vec2[i]}")
-                    # record the pnl from this trade
-                    self.final_pl += (self.stock1_pl + self.stock2_pl)
-                    self.final_pl_pct = self.final_pl/base_fund
-
-                    if verbose:
-                        print(f'Total PnL from this trade is {(self.stock1_pl + self.stock2_pl)}')
-                        print(f'cumulative PnL percentage is {self.final_pl/base_fund}')
-                    self.stock1_pl=0
-                    self.stock2_pl=0
-                     
-        return self
-
-
+    
 def cos_sim(rs,df):
             rows = df.loc[rs.index]
             vec1_sub1 = rows['Close_P1']
@@ -317,9 +248,9 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
                                     current_row.abs_spread_std,
                                     entry_signal=1.5
                                 ).execute(
-                                    vec1=df.loc[(idx+1):(idx+121)]['Close_P1'].values,
-                                    vec2=df.loc[(idx+1):(idx+121)]['Close_P2'].values,
-                                    dates=df.loc[(idx+1):(idx+121)]['Date'].values
+                                    vec1=df.loc[(idx+1):(idx+120)]['Close_P1'].values,
+                                    vec2=df.loc[(idx+1):(idx+120)]['Close_P2'].values,
+                                    dates=df.loc[(idx+1):(idx+120)]['Date'].values
                                 )
                     pnls.append(result.final_pl_pct)
                     num_entries.append(result.num_entries)
@@ -334,6 +265,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
 
             df['pnls'] = pnls
             df['trade_executions'] = trading_tables
+            df['num_entries'] = num_entries
 
             labels_tb = pd.concat(
                 [
