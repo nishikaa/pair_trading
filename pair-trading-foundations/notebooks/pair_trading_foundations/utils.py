@@ -3,6 +3,7 @@ yf.pdr_override()
 from pandas_datareader import data as pdr
 import pandas as pd
 import numpy as np
+import plotly.express as px
 
 class GetSP500Data:
     def __init__(self, start_date, end_date):
@@ -43,3 +44,24 @@ class GetSP500Data:
         
         self.combined_table = combined_table
         return combined_table
+    
+def examine_output_data(tb, ticker1, ticker2, date):
+
+    sub = tb[(tb.Ticker_P1==ticker1)&(tb.Ticker_P2==ticker2)].reset_index(drop=True)
+    idx = np.where(sub.Date==date)[0][0]
+    sub = tb[(tb.Ticker_P1==ticker1)&(tb.Ticker_P2==ticker2)].reset_index(drop=True)[idx:(idx+121)]
+
+    # Get the trading execution
+    trade_exec = sub.trade_executions.values[0]
+
+    fig = px.line(sub, x="Date", y=['Close_P1','Close_P2', 'abs_spread'])
+
+    for entry_date in trade_exec.entry_dates.values: 
+        fig.add_vline(x=entry_date, line_width=3, line_dash="dash", line_color="green")
+    for exit_date in trade_exec.exit_dates.values: 
+        fig.add_vline(x=exit_date, line_width=3, line_dash="dash", line_color="red")
+
+    fig.show()
+    trade_exec
+
+    return None

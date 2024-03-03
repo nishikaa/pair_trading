@@ -1,0 +1,35 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlapi-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: mlapi
+          image: w255mids.azurecr.io/michaeltay/project:[TAG]
+          resources:
+            requests:
+              cpu: 800m
+              memory: 1000Mi
+            limits:
+              cpu: 2500m
+              memory: 5000Mi
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /health
+              port: 8000
+            initialDelaySeconds: 1
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20

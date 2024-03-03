@@ -1,0 +1,23 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: mlapi
+spec:
+  hosts:
+    - michaeltay.mids255.com
+  gateways:
+    - istio-ingress/michaeltay-gateway
+  http:
+    - match:
+        - uri:
+            exact: /project-predict
+        - uri:
+            prefix: /health
+        - uri:
+            prefix: /openapi.json
+      route:
+        - destination:
+            host: mlapi
+            port:
+              number: 8000
