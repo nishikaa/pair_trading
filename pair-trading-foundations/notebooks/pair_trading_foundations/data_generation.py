@@ -238,7 +238,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
             num_entries = []
             trading_tables = []
             for idx in range(df.shape[0]):
-                if (idx < 500) | (idx > df.shape[0]-119):
+                if (idx < training_len) | (idx > df.shape[0]-test_len-1):
                     pnls.append(np.nan)
                     trading_tables.append(np.nan)
                     num_entries.append(np.nan)
@@ -249,9 +249,9 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
                                     current_row.abs_spread_std,
                                     entry_signal=1.5
                                 ).execute(
-                                    vec1=df.loc[(idx+1):(idx+120)]['Close_P1'].values,
-                                    vec2=df.loc[(idx+1):(idx+120)]['Close_P2'].values,
-                                    dates=df.loc[(idx+1):(idx+120)]['Date'].values
+                                    vec1=df.loc[(idx+1):(idx+test_len)]['Close_P1'].values,
+                                    vec2=df.loc[(idx+1):(idx+test_len)]['Close_P2'].values,
+                                    dates=df.loc[(idx+1):(idx+test_len)]['Date'].values
                                 )
                     pnls.append(result.final_pl_pct)
                     num_entries.append(result.num_entries)
