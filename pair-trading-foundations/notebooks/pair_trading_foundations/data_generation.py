@@ -144,12 +144,14 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
     feature_columns = [
         'Date', 'Ticker_P1', 'Close_P1', 'Ticker_P2', 'Close_P2', 
         'High_P1', 'High_P2', 'Low_P1', 'Low_P2', 'Volume_P1', 'Volume_P2', 'abs_spread',
+        'same_sector_flag', 'same_sub_industry_flag',
        'abs_spread_mean', 'abs_spread_std', 'abs_spread_mean_l28',
        'abs_spread_std_l28', 'spread_normed', 'abs_spread_normed_max',
        'abs_spread_normed_90th', 'abs_spread_normed_75th',
        'abs_spread_normed_median', 'abs_spread_normed_l7_avg',
        'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef'
     ]
+    
     label_columns = [
         'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'num_entries'
     ]
