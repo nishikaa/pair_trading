@@ -58,7 +58,11 @@ class ExecutePairTrading:
         length_spread = len(abs_spread)
         entry_positions = entry_positions[entry_positions<length_spread]
         exit_positions = exit_positions[exit_positions<length_spread]
-
+        
+        if len(entry_positions) > 0:
+            self.earliest_entry_idx = min(entry_positions)
+        else:
+            self.earliest_entry_idx = None
         signal_pairs = []
         for entry_pos in entry_positions:
             # Find the first exit position that is greater than the entry position
@@ -72,11 +76,14 @@ class ExecutePairTrading:
 
         self.final_pl = 0
         self.num_entries = 0
+        self.both_legs_profited = 0
         if len(signal_pairs) >0:
             # Create a dataframe to store the results
             temp_tb = pd.DataFrame(signal_pairs)
             temp_tb.columns = ['entry_idx', 'exit_idx']
             temp_tb = temp_tb.groupby('exit_idx').min().reset_index()
+            # Make sure its ranked by entries
+            temp_tb = temp_tb.sort_values('entry_idx',ascending=True).reset_index(drop=True)
 
             # record the number of entries detected
             self.num_entries = temp_tb.shape[0]
@@ -88,7 +95,7 @@ class ExecutePairTrading:
             temp_tb['long_stock_1'] = [self.long_stock1_flag(vec1, vec2, x) for x in temp_tb.entry_idx]
 
             pnls = []
-            trade_descriptions = []
+            both_long_short_profit = []
             for row in range(temp_tb.shape[0]):
                 long_pnl=0
                 short_pnl=0
@@ -101,10 +108,20 @@ class ExecutePairTrading:
                     long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values[row] - temp_tb.stock2_price_entry.values[row])/temp_tb.stock2_price_entry.values[row])
                     short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values[row] - temp_tb.stock1_price_exit.values[row])/temp_tb.stock1_price_entry.values[row])
                 pnls.append(long_pnl+short_pnl)
+                
+                if (long_pnl > 0) & (short_pnl>0):
+                    both_long_short_profit.append(True)
+                else:
+                    both_long_short_profit.append(False)
             temp_tb['pnl'] = pnls
             temp_tb['entry_dates'] = temp_tb.entry_idx.apply(lambda x: dates[x])
             temp_tb['exit_dates'] = temp_tb.exit_idx.apply(lambda x: dates[x])
-            self.final_pl = temp_tb.pnl.sum()
+            temp_tb['both_long_short_profit'] = both_long_short_profit
+
+            # to simplify, get only the first record
+            # temp_tb is sorted
+            self.final_pl = temp_tb.pnl[0]
+            self.both_legs_profited = temp_tb.both_long_short_profit[0]
             self.trade_execution_table = temp_tb
         self.final_pl_pct = self.final_pl/base_fund
 
@@ -145,15 +162,16 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         'Date', 'Ticker_P1', 'Close_P1', 'Ticker_P2', 'Close_P2', 
         'High_P1', 'High_P2', 'Low_P1', 'Low_P2', 'Volume_P1', 'Volume_P2', 'abs_spread',
         'same_sector_flag', 'same_sub_industry_flag',
-       'abs_spread_mean', 'abs_spread_std', 'abs_spread_mean_l28',
-       'abs_spread_std_l28', 'spread_normed', 'abs_spread_normed_max',
+       'abs_spread_mean', 'abs_spread_std', 'abs_spread_mean_l20',
+       'abs_spread_std_l20', 'spread_normed', 'abs_spread_normed_max',
        'abs_spread_normed_90th', 'abs_spread_normed_75th',
        'abs_spread_normed_median', 'abs_spread_normed_l7_avg',
        'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef'
     ]
     
     label_columns = [
-        'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'num_entries'
+        'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'num_entries', 'days_till_first_entry',
+        'both_legs_profited'
     ]
     metadata_tb_columns = [
          'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'trade_executions'
@@ -207,8 +225,8 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         df['abs_spread'] = (df['Close_P1'] - df['Close_P2']).abs()
         df['abs_spread_mean'] = df.rolling(training_len).abs_spread.mean()
         df['abs_spread_std'] = df.rolling(training_len).abs_spread.std()
-        df['abs_spread_mean_l28'] = df.rolling(28).abs_spread.mean()
-        df['abs_spread_std_l28'] = df.rolling(28).abs_spread.std()
+        df['abs_spread_mean_l20'] = df.rolling(20).abs_spread.mean()
+        df['abs_spread_std_l20'] = df.rolling(20).abs_spread.std()
         df['spread_normed'] = (df['abs_spread']-df['abs_spread_mean'])/df['abs_spread_std']
         df['abs_spread_normed_max'] = df.spread_normed.abs().rolling(training_len).max()
         df['abs_spread_normed_90th'] = df.spread_normed.abs().rolling(training_len).quantile(0.9)
@@ -238,17 +256,21 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
             start_ts = time()
             pnls = []
             num_entries = []
+            days_till_first_entry = []
+            both_legs_profited = []
             trading_tables = []
             for idx in range(df.shape[0]):
                 if (idx < training_len) | (idx > df.shape[0]-test_len-1):
                     pnls.append(np.nan)
-                    trading_tables.append(np.nan)
                     num_entries.append(np.nan)
+                    days_till_first_entry.append(np.nan)
+                    both_legs_profited.append(np.nan)
+                    trading_tables.append(np.nan)
                 else:
                     current_row = df.loc[idx]
                     result=execution_class(
-                                    current_row.abs_spread_mean,
-                                    current_row.abs_spread_std,
+                                    current_row.abs_spread_mean_l20,
+                                    current_row.abs_spread_std_l20,
                                     entry_signal=1.5
                                 ).execute(
                                     vec1=df.loc[(idx+1):(idx+test_len)]['Close_P1'].values,
@@ -257,6 +279,8 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
                                 )
                     pnls.append(result.final_pl_pct)
                     num_entries.append(result.num_entries)
+                    days_till_first_entry.append(result.earliest_entry_idx)
+                    both_legs_profited.append(result.both_legs_profited)
                     if result.final_pl_pct != 0:
                         trading_tables.append(result.trade_execution_table)
                     else:
@@ -269,6 +293,8 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
             df['pnls'] = pnls
             df['trade_executions'] = trading_tables
             df['num_entries'] = num_entries
+            df['days_till_first_entry'] = days_till_first_entry
+            df['both_legs_profited'] = both_legs_profited
 
             labels_tb = pd.concat(
                 [
