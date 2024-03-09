@@ -6,7 +6,7 @@ authors = [""]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = ">=3.10,<3.12"
 fastapi = "^0.103.1"
 fastapi-cache2 = "0.1.9"
 uvicorn = "^0.23.2"
@@ -27,6 +27,7 @@ xgboost = "^2.0.3"
 scikit-learn = "^1.4.1.post1"
 redis = { version = "^4.2.0rc1", optional = true }
 ta = "^0.11.0"
+tensorflow = "^2.15.0.post1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^8.0.1"

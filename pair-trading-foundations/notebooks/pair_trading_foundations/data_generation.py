@@ -313,7 +313,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
                     ]
                 ]
             )
-        
+        df.dete
     ts_final = time()
     print(f"Took {ts_final - ts1} to finish")
     return features_tb, labels_tb, pnl_metadata_tb
