@@ -166,7 +166,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
        'abs_spread_std_l20', 'spread_normed', 'abs_spread_normed_max',
        'abs_spread_normed_90th', 'abs_spread_normed_75th',
        'abs_spread_normed_median', 'abs_spread_normed_l7_avg',
-       'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef_l5',
+       'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef','corr_coef_l5',
        'corr_coef_l10','corr_coef_l15','corr_coef_l20','corr_coef_l40','corr_coef_l60'
     ]
     
@@ -236,13 +236,13 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         df['abs_spread_normed_l7_avg'] = df.spread_normed.abs().rolling(7).mean()
         df['abs_spread_normed_l14_avg'] = df.spread_normed.abs().rolling(14).mean()
         df['cos_sim'] = df['Close_P1'].rolling(training_len).apply(cos_sim, args=(df,))
+        df['corr_coef'] = df['Close_P1'].rolling(training_len).apply(corr_coef, args=(df,))
         df['corr_coef_l5'] = df['Close_P1'].rolling(5).apply(corr_coef, args=(df,))
         df['corr_coef_l10'] = df['Close_P1'].rolling(10).apply(corr_coef, args=(df,))
         df['corr_coef_l15'] = df['Close_P1'].rolling(15).apply(corr_coef, args=(df,))
         df['corr_coef_l20'] = df['Close_P1'].rolling(20).apply(corr_coef, args=(df,))
         df['corr_coef_l40'] = df['Close_P1'].rolling(40).apply(corr_coef, args=(df,))
         df['corr_coef_l60'] = df['Close_P1'].rolling(60).apply(corr_coef, args=(df,))
-
 
         end_ts = time()
         if verbose:
