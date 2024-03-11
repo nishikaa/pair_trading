@@ -80,16 +80,16 @@ async def mlapi(financemodel_request: FinanceModelRequest):
     X = xgb_model.feature_scaler.transform(latest[xgb_model.features_names])
     # Run inference via matrix
     probability_class_1 = xgb_model.predict_proba(X)
-    predictions = np.argmax(probability_class_1, axis=1)
+    predictions = np.argmax(probability_class_1, axis=1) # Not used
     probability = probability_class_1[:, 1]
 
     latest = transformed_data[transformed_data.Date == transformed_data.Date.max()]
-    latest['preds'] = [x for x in predictions]
+    latest['probability'] = [x for x in probability]
     latest = latest.reset_index()
     # Get top K
     K = financemodel_request.requested_pairs
-    output = latest.sort_values('preds', ascending=False).head(K)
-    probabilities = probability[output.index]
+    output = latest.sort_values('probability', ascending=False).head(K)
+    probabilities = np.array(output['probability'])
     ticker_left = np.array(output['Ticker_P1'])
     ticker_right = np.array(output['Ticker_P2'])
     for i in range(K):
