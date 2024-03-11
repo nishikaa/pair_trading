@@ -14,4 +14,4 @@ done
 # Run project-predict endpoint
 echo "testing '/mlapi-predict' endpoint"
 curl -X 'POST' "http://localhost:8000/mlapi-predict" -L -H 'Content-Type: application/json' -d \
-'{ "requested_pairs", 3, duration_in_days": 120, "dollar_amt": 100 }' -w "\n"
+'{ "requested_pairs": 3, "duration_in_days": 120, "dollar_amt": 100 }' -w "\n"
