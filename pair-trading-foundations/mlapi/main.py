@@ -5,18 +5,20 @@ from contextlib import asynccontextmanager
 # Import Modules for pydantic and validation
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+import numpy as np
+import pandas as pd
+import joblib
 from fastapi import FastAPI
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 from redis import asyncio
+import json
 
 logger = logging.getLogger(__name__)
 # SERVICE_REDIS_URL = "redis://redis-service:6379"
 LOCAL_REDIS_URL = "redis://localhost:6379"
-
-# app = FastAPI()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI): 
@@ -25,6 +27,12 @@ async def lifespan(app: FastAPI):
     redis = asyncio.from_url(HOST_URL, encoding="utf8", decode_responses=True)
     FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
     yield
+
+# Load the model on startup, this requires container to be instantiated
+xgb_model = joblib.load("xgb_st_entry.pkl")
+
+# Load the csv on startup
+transformed_data = pd.read_csv('transformed_data.csv')
 
 app = FastAPI(lifespan=lifespan)
 
@@ -55,15 +63,38 @@ class FinanceModelRequest(BaseModel):
 
 class FinanceModelResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    predictions : list[str]
+    predictions : list[list[str]]
 
 
 @app.post("/mlapi-predict", response_model=FinanceModelResponse)
 # @cache(expire=60)
 async def mlapi(finance_model: FinanceModelRequest):
     finance_model_output = []
-    finance_model_output.append("None")
 
+    latest = transformed_data[transformed_data.Date == transformed_data.Date.max()]
+    X = xgb_model.feature_scaler.transform(latest[xgb_model.features_names])
+    # Run inference via matrix
+    probability_class_1 = xgb_model.predict_proba(X)
+    predictions = np.argmax(probability_class_1, axis=1)
+    probability = probability_class_1[:, 1]
+
+    latest = transformed_data[transformed_data.Date == transformed_data.Date.max()]
+    latest['preds'] = [x for x in predictions]
+    latest = latest.reset_index()
+    # Get top K
+    K = 3
+    output = latest.sort_values('preds', ascending=False).head(K)
+    probabilities = probability[output.index]
+    ticker_left = np.array(output['Ticker_P1'])
+    ticker_right = np.array(output['Ticker_P2'])
+    for i in range(K):
+        pairs_data = []
+        pairs_data.append(str(ticker_left[i]))
+        pairs_data.append(str(ticker_right[i]))
+        pairs_data.append(str(probabilities[i]))
+        finance_model_output.append(pairs_data)
+
+    # Generate output
     output = FinanceModelResponse(predictions=finance_model_output)
     # Return the pydantic output
     return output
