@@ -40,12 +40,14 @@ class FinanceModelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     duration_in_days: int = Field(ge=0)
     dollar_amt: int = Field(ge=0)
+    requested_pairs: int = Field(ge=0)
     
     def to_numpy(self):
         return np.array(
             [
                 self.duration_in_days,
                 self.dollar_amt,
+                self.requested_pairs
             ]
         )
 
@@ -54,10 +56,13 @@ class FinanceModelRequest(BaseModel):
         # Check for valid
         days = self.duration_in_days
         dollars = self.dollar_amt
+        requested_pairs = self.requested_pairs
         if days < 0:
             raise ValueError("Invalid days")
         if dollars < 0:
             raise ValueError("Invalid dollars")
+        if requested_pairs < 1:
+            raise ValueError("Invalid amount")
         return self
 
 
@@ -68,7 +73,7 @@ class FinanceModelResponse(BaseModel):
 
 @app.post("/mlapi-predict", response_model=FinanceModelResponse)
 # @cache(expire=60)
-async def mlapi(finance_model: FinanceModelRequest):
+async def mlapi(financemodel_request: FinanceModelRequest):
     finance_model_output = []
 
     latest = transformed_data[transformed_data.Date == transformed_data.Date.max()]
@@ -82,7 +87,7 @@ async def mlapi(finance_model: FinanceModelRequest):
     latest['preds'] = [x for x in predictions]
     latest = latest.reset_index()
     # Get top K
-    K = 3
+    K = financemodel_request.requested_pairs
     output = latest.sort_values('preds', ascending=False).head(K)
     probabilities = probability[output.index]
     ticker_left = np.array(output['Ticker_P1'])
