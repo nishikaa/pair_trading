@@ -7,11 +7,11 @@ from matplotlib import pyplot as plt
 from time import time
 
 class ExecutePairTrading:
-    def __init__(self, abs_spread_mean, abs_spread_std, entry_signal=1.5, stop_loss=0.2):
+    def __init__(self, abs_spread_mean, abs_spread_std, entry_signal, exit_signal):
         self.abs_spread_mean = abs_spread_mean
         self.abs_spread_std = abs_spread_std
         self.entry_signal=entry_signal
-        self.stop_loss=0.2
+        self.exit_signal=exit_signal
         self.final_pl=0
         self.final_pl_pct=0
 
@@ -42,51 +42,44 @@ class ExecutePairTrading:
         
     def execute(self, vec1, vec2, dates, base_fund=100, split=0.5, verbose=False):
 
-        abs_spread = abs(np.array(vec1) - np.array(vec2))
+        abs_spread = abs(vec1 - vec2)
+        abs_spread_std = np.std(abs_spread)
         entry_thresh = self.abs_spread_mean + self.entry_signal*self.abs_spread_std
-        exit_thresh = self.abs_spread_mean + 0.1*self.abs_spread_std
+        exit_thresh = self.abs_spread_mean + self.exit_signal*self.abs_spread_std
 
         # get the positions where the entry/exit signals appears
         entry_signals = np.array([1 if abs_spread[i] >= entry_thresh else 0 for i in range(0, len(abs_spread))])
         exit_signals = np.array([1 if abs_spread[i] <= exit_thresh else 0 for i in range(0, len(abs_spread))])
 
-        # when an entry is detected, execute the next day
-        entry_positions = np.where(entry_signals == 1)[0]+1
-        exit_positions = np.where(exit_signals == 1)[0]+1
-
-        # Sometimes the entry signal is detected is on the last day of the testing window, which makes the entry position out of bound
-        length_spread = len(abs_spread)
-        entry_positions = entry_positions[entry_positions<length_spread]
-        exit_positions = exit_positions[exit_positions<length_spread]
+        # Always exist on the last day
+        exit_signals[len(abs_spread)-1] = 1
         
-        if len(entry_positions) > 0:
-            self.earliest_entry_idx = min(entry_positions)
-        else:
-            self.earliest_entry_idx = None
         signal_pairs = []
-        for entry_pos in entry_positions:
-            # Find the first exit position that is greater than the entry position
-            next_exit_pos = exit_positions[exit_positions > entry_pos]
-            if next_exit_pos.size > 0:
-                exit_pos = next_exit_pos[0]
-            else:
-                # Default exit position if no exit signal is found after the entry signal
-                exit_pos = length_spread - 1
-            signal_pairs.append((entry_pos, exit_pos))
+        has_entered = 0
+        last_entered = 0
+        for idx, entry_pos in enumerate(entry_signals):
+            if has_entered == 0 and entry_pos == 0:
+                continue # No entry
+             
+            if has_entered == 1 and exit_signals[idx] == 1:
+                signal_pairs.append((last_entered, idx))
+                has_entered = 0 # Exited
+            elif has_entered == 0 and entry_signals[idx] == 1:
+                last_entered = idx
+                has_entered = 1 # Entered
+           
+        # Always exit on the last day if still in position
+        if has_entered == 1:
+            signal_pairs.append((last_entered, len(entry_signals)-1))
 
         self.final_pl = 0
-        self.num_entries = 0
-        self.both_legs_profited = 0
-        if len(signal_pairs) >0:
+        if len(signal_pairs) > 0:
             # Create a dataframe to store the results
             temp_tb = pd.DataFrame(signal_pairs)
             temp_tb.columns = ['entry_idx', 'exit_idx']
             temp_tb = temp_tb.groupby('exit_idx').min().reset_index()
             # Make sure its ranked by entries
             temp_tb = temp_tb.sort_values('entry_idx',ascending=True).reset_index(drop=True)
-
-            # record the number of entries detected
-            self.num_entries = temp_tb.shape[0]
 
             temp_tb['stock1_price_entry'] = vec1[temp_tb['entry_idx']] 
             temp_tb['stock1_price_exit'] = vec1[temp_tb['exit_idx']] 
@@ -109,22 +102,17 @@ class ExecutePairTrading:
                     short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values[row] - temp_tb.stock1_price_exit.values[row])/temp_tb.stock1_price_entry.values[row])
                 pnls.append(long_pnl+short_pnl)
                 
-                if (long_pnl > 0) & (short_pnl>0):
-                    both_long_short_profit.append(True)
-                else:
-                    both_long_short_profit.append(False)
             temp_tb['pnl'] = pnls
             temp_tb['entry_dates'] = temp_tb.entry_idx.apply(lambda x: dates[x])
             temp_tb['exit_dates'] = temp_tb.exit_idx.apply(lambda x: dates[x])
-            temp_tb['both_long_short_profit'] = both_long_short_profit
 
             # to simplify, get only the first record
             # temp_tb is sorted
             self.final_pl = temp_tb.pnl[0]
-            self.both_legs_profited = temp_tb.both_long_short_profit[0]
-            self.trade_execution_table = temp_tb
         self.final_pl_pct = self.final_pl/base_fund
-
+        self.abs_spread = abs_spread.mean()
+        self.abs_spread_std = abs_spread_std
+        
         return self
     
 def cos_sim(rs,df):
@@ -140,7 +128,7 @@ def corr_coef(rs,df):
     vec2_sub1 = rows['Close_P2']
     return np.corrcoef(vec1_sub1, vec2_sub1)[0, 1]
 
-def generate_training_data(data, training_len=500, test_len=120, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading, combinations=None):
+def generate_training_data(data, moving_average=20, training_len=500, test_len=120, entry_signal=1.5, exit_signal=1, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading, max_combinations=-1, combinations=None):
     """
     data: A pandas dataframe from the GetSP500Data module in ultils
     """
@@ -157,37 +145,19 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         combinations = list(itertools.combinations(tickers, 2))
     print(f"{len(combinations)} stock pairs detected")
 
-    # Initiate data tables to store the generated results
-    feature_columns = [
-        'Date', 'Ticker_P1', 'Close_P1', 'Ticker_P2', 'Close_P2', 
-        'High_P1', 'High_P2', 'Low_P1', 'Low_P2', 'Volume_P1', 'Volume_P2', 'abs_spread',
-        'same_sector_flag', 'same_sub_industry_flag',
-       'abs_spread_mean', 'abs_spread_std', 'abs_spread_mean_l20',
-       'abs_spread_std_l20', 'spread_normed', 'abs_spread_normed_max',
-       'abs_spread_normed_90th', 'abs_spread_normed_75th',
-       'abs_spread_normed_median', 'abs_spread_normed_l7_avg',
-       'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef','corr_coef_l5',
-       'corr_coef_l10','corr_coef_l15','corr_coef_l20','corr_coef_l40','corr_coef_l60'
-    ]
+    features_tb = pd.DataFrame()
+    labels_tb = pd.DataFrame()
     
-    label_columns = [
-        'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'num_entries', 'days_till_first_entry',
-        'both_legs_profited'
-    ]
-    metadata_tb_columns = [
-         'Date', 'Ticker_P1', 'Ticker_P2', 'pnls', 'trade_executions'
-    ]
-
-    features_tb = pd.DataFrame(columns=feature_columns)
-    labels_tb = pd.DataFrame(columns=label_columns)
-    pnl_metadata_tb = pd.DataFrame(columns=metadata_tb_columns)
-    
-    i = 1
+    i = 0
     # Get a list of unique dates for later use
     all_dates = data['Date'].unique()    
     ts_pre_loop =  time()
     print(f"Took {ts_pre_loop - ts1} to initilize. Entering ticker pair loop")
-
+    
+    if max_combinations == -1:
+        max_combinations = len(combinations)
+            
+    print(f"Max combination = {max_combinations}")
     for ticker1, ticker2 in combinations:
         ts2 = time()
         if verbose:
@@ -218,31 +188,18 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
 
         # Create a temp table for the features
         df = pd.merge(vec1_full,vec2_full,on='Date',how='left',suffixes=['_P1','_P2'])
-
+    
         start_ts = time()
         # Calculate the features
-        df['same_sector_flag'] = same_sector_flag
-        df['same_sub_industry_flag'] = same_sub_industry_flag
-        df['abs_spread'] = (df['Close_P1'] - df['Close_P2']).abs()
+#         df['same_sector_flag'] = same_sector_flag
+#         df['same_sub_industry_flag'] = same_sub_industry_flag
+        df['abs_spread'] = abs(df['Close_P1'] - df['Close_P2'])
         df['abs_spread_mean'] = df.rolling(training_len).abs_spread.mean()
         df['abs_spread_std'] = df.rolling(training_len).abs_spread.std()
-        df['abs_spread_mean_l20'] = df.rolling(20).abs_spread.mean()
-        df['abs_spread_std_l20'] = df.rolling(20).abs_spread.std()
-        df['spread_normed'] = (df['abs_spread']-df['abs_spread_mean'])/df['abs_spread_std']
-        df['abs_spread_normed_max'] = df.spread_normed.abs().rolling(training_len).max()
-        df['abs_spread_normed_90th'] = df.spread_normed.abs().rolling(training_len).quantile(0.9)
-        df['abs_spread_normed_75th'] = df.spread_normed.abs().rolling(training_len).quantile(0.75)
-        df['abs_spread_normed_median'] = df.spread_normed.abs().rolling(training_len).median()
-        df['abs_spread_normed_l7_avg'] = df.spread_normed.abs().rolling(7).mean()
-        df['abs_spread_normed_l14_avg'] = df.spread_normed.abs().rolling(14).mean()
-        df['cos_sim'] = df['Close_P1'].rolling(training_len).apply(cos_sim, args=(df,))
-        df['corr_coef'] = df['Close_P1'].rolling(training_len).apply(corr_coef, args=(df,))
-        df['corr_coef_l5'] = df['Close_P1'].rolling(5).apply(corr_coef, args=(df,))
-        df['corr_coef_l10'] = df['Close_P1'].rolling(10).apply(corr_coef, args=(df,))
-        df['corr_coef_l15'] = df['Close_P1'].rolling(15).apply(corr_coef, args=(df,))
-        df['corr_coef_l20'] = df['Close_P1'].rolling(20).apply(corr_coef, args=(df,))
-        df['corr_coef_l40'] = df['Close_P1'].rolling(40).apply(corr_coef, args=(df,))
-        df['corr_coef_l60'] = df['Close_P1'].rolling(60).apply(corr_coef, args=(df,))
+        df['abs_spread_mean_MA'] = df.rolling(moving_average).abs_spread.mean()
+        df['abs_spread_std_MA'] = df.rolling(moving_average).abs_spread.std()
+#         df['cos_sim'] = df['Close_P1'].rolling(moving_average).apply(cos_sim, args=(df,))
+#         df['corr_coef'] = df['Close_P1'].rolling(moving_average).apply(corr_coef, args=(df,))
 
         end_ts = time()
         if verbose:
@@ -252,9 +209,7 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         features_tb = pd.concat(
             [
                 features_tb,
-                df[
-                    feature_columns
-                ]
+                df
             ]
         )
 
@@ -262,65 +217,53 @@ def generate_training_data(data, training_len=500, test_len=120, calculate_label
         if calculate_label:
             start_ts = time()
             pnls = []
-            num_entries = []
-            days_till_first_entry = []
-            both_legs_profited = []
-            trading_tables = []
+            abs_spread = []
+            abs_spread_std = []
             for idx in range(df.shape[0]):
-                if (idx < training_len) | (idx > df.shape[0]-test_len-1):
+                if (idx <= training_len) | (idx > df.shape[0]-test_len-1):
                     pnls.append(np.nan)
-                    num_entries.append(np.nan)
-                    days_till_first_entry.append(np.nan)
-                    both_legs_profited.append(np.nan)
-                    trading_tables.append(np.nan)
+                    abs_spread.append(np.nan)
+                    abs_spread_std.append(np.nan)
                 else:
                     current_row = df.loc[idx]
                     result=execution_class(
-                                    current_row.abs_spread_mean_l20,
-                                    current_row.abs_spread_std_l20,
-                                    entry_signal=1.5
+                                    current_row.abs_spread_mean_MA,
+                                    current_row.abs_spread_std_MA,
+                                    entry_signal=entry_signal,
+                                    exit_signal=exit_signal
                                 ).execute(
+                                    # Forward window
                                     vec1=df.loc[(idx+1):(idx+test_len)]['Close_P1'].values,
                                     vec2=df.loc[(idx+1):(idx+test_len)]['Close_P2'].values,
-                                    dates=df.loc[(idx+1):(idx+test_len)]['Date'].values
+                                    dates=df.loc[(idx+1):(idx+test_len)]['Date'].values,
+                                    base_fund=100,
                                 )
                     pnls.append(result.final_pl_pct)
-                    num_entries.append(result.num_entries)
-                    days_till_first_entry.append(result.earliest_entry_idx)
-                    both_legs_profited.append(result.both_legs_profited)
-                    if result.final_pl_pct != 0:
-                        trading_tables.append(result.trade_execution_table)
-                    else:
-                        trading_tables.append(None)
+                    abs_spread.append(result.abs_spread)
+                    abs_spread_std.append(result.abs_spread_std)
 
+                    
             end_ts = time()
             if verbose:
                 print(f"{end_ts - start_ts} to calculate labels")
 
+            # Filter away except these
+            df = df.filter(['Date', 'Ticker_P1', 'Ticker_P2'])
             df['pnls'] = pnls
-            df['trade_executions'] = trading_tables
-            df['num_entries'] = num_entries
-            df['days_till_first_entry'] = days_till_first_entry
-            df['both_legs_profited'] = both_legs_profited
+            df['actual_abs_spread'] = abs_spread
+            df['actual_abs_spread_std'] = abs_spread_std
 
             labels_tb = pd.concat(
                 [
                     labels_tb,
-                    df[
-                        label_columns
-                    ]
+                    df
                 ]
             )
 
-            pnl_metadata_tb = pd.concat(
-                [
-                    pnl_metadata_tb,
-                    df[
-                        metadata_tb_columns
-                    ]
-                ]
-            )
+        if i == max_combinations:
+            break
+            
     ts_final = time()
     print(f"Took {ts_final - ts1} to finish")
-    return features_tb, labels_tb, pnl_metadata_tb
+    return features_tb, labels_tb
 
