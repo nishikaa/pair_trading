@@ -33,6 +33,17 @@ xgb_model = joblib.load("xgb_st_entry.pkl")
 
 # Load the csv on startup
 transformed_data = pd.read_csv('transformed_data.csv')
+features_data = pd.read_csv('pair_features1_300_60.csv')
+
+columns = ['Date', 'Ticker_P1','Ticker_P2', 'Close_P1', 'Close_P2', 'High_P1', 'High_P2', 'Low_P1',
+       'Low_P2', 'Volume_P1', 'Volume_P2', 'abs_spread', 'abs_spread_mean',
+       'abs_spread_std', 'spread_normed', 'abs_spread_normed_max',
+       'abs_spread_normed_90th', 'abs_spread_normed_75th',
+       'abs_spread_normed_median', 'abs_spread_normed_l7_avg',
+       'abs_spread_normed_l14_avg', 'cos_sim', 'corr_coef', 'pnls',
+       'num_entries']
+transformed_data_with_pnl = pd.merge(transformed_data, features_data, how='left', left_on = columns, right_on = columns, suffixes=(False, False))
+transformed_data_with_pnl['pnls'] = transformed_data_with_pnl['pnls'] * 100.0
 
 app = FastAPI(lifespan=lifespan)
 
@@ -83,20 +94,22 @@ async def mlapi(financemodel_request: FinanceModelRequest):
     predictions = np.argmax(probability_class_1, axis=1) # Not used
     probability = probability_class_1[:, 1]
 
-    latest = transformed_data[transformed_data.Date == transformed_data.Date.max()]
+    latest = transformed_data_with_pnl[transformed_data_with_pnl.Date == transformed_data_with_pnl.Date.max()]
     latest['probability'] = [x for x in probability]
     latest = latest.reset_index()
     # Get top K
     K = financemodel_request.requested_pairs
-    output = latest.sort_values('probability', ascending=False).head(K)
+    output = latest.sort_values('pnls', ascending=False).head(K)
     probabilities = np.array(output['probability'])
     ticker_left = np.array(output['Ticker_P1'])
     ticker_right = np.array(output['Ticker_P2'])
+    pnls = np.array(output['pnls'])
     for i in range(K):
         pairs_data = []
         pairs_data.append(str(ticker_left[i]))
         pairs_data.append(str(ticker_right[i]))
         pairs_data.append(str(probabilities[i]))
+        pairs_data.append(str(pnls[i]))
         finance_model_output.append(pairs_data)
 
     # Generate output

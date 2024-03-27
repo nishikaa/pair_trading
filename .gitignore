@@ -1,6 +1,4 @@
 .ipynb_checkpoints/
-Data/
-Pair_Trading_Final_v5.ipynb 
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -8,6 +6,8 @@ __pycache__/
 *$py.class
 
 *.DS_Store
+*.csv
+*.pkl
 
 # C extensions
 *.so
