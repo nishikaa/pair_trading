@@ -43,7 +43,14 @@ class ExecutePairTrading:
         
     def execute(self, vec1, vec2, dates, beta_p1, beta_p2, base_fund=100,split=0.5, verbose=False):
 
-        assert (beta_p1 <=1) & (beta_p2 <=1)
+        if (beta_p1 >1):
+            # print('Warning: Beta for stock 1 is greater than 1')
+            beta_p1 = 1
+
+        if (beta_p2 >1):
+            # print('Warning: Beta for stock 2 is greater than 1')
+            beta_p2 = 1
+        
         abs_spread = abs(vec1 - vec2)
         abs_spread_std = np.std(abs_spread)
         entry_thresh = self.abs_spread_mean + self.entry_signal*self.abs_spread_std
@@ -189,9 +196,9 @@ def generate_training_data(data, sp500_df, moving_average=20, training_len=300, 
             ts_pre_loop = time()
         i+=1
 
-        # Flag indicating whether the two tickers are from the same sector
-        same_sector_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sector'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sector'].values[0]
-        same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
+        # # Flag indicating whether the two tickers are from the same sector
+        # same_sector_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sector'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sector'].values[0]
+        # same_sub_industry_flag = data_agg[data_agg.Ticker==ticker1]['GICS Sub-Industry'].values[0] == data_agg[data_agg.Ticker==ticker2]['GICS Sub-Industry'].values[0]
         
         # The the full history of the data
         vec1_full = data[['Ticker','Date', 'High', 'Low', 'Volume','Adj Close']][data.Ticker==ticker1].reset_index(drop=True)
@@ -199,10 +206,10 @@ def generate_training_data(data, sp500_df, moving_average=20, training_len=300, 
         vec1_full.columns = ['Ticker','Date', 'High', 'Low', 'Volume','Close']
         vec2_full.columns = ['Ticker','Date', 'High', 'Low', 'Volume','Close']
         
-        # Check if a ticker has incomplete data
-        if len(vec1_full) != len(vec2_full):
-            # print(f"Incomplete data detected when generating for pair {ticker1} and {ticker2}. Skipping")
-            continue
+        # # Check if a ticker has incomplete data
+        # if len(vec1_full) != len(vec2_full):
+        #     # print(f"Incomplete data detected when generating for pair {ticker1} and {ticker2}. Skipping")
+        #     continue
 
         # Create a temp table for the features
         df = pd.merge(vec1_full,vec2_full,on='Date',how='left',suffixes=['_P1','_P2'])
