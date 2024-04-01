@@ -5,6 +5,7 @@ import itertools
 import random
 from matplotlib import pyplot as plt
 from time import time
+import statsmodels.api as sm
 
 class ExecutePairTrading:
     def __init__(self, abs_spread_mean, abs_spread_std, entry_signal, exit_signal):
@@ -40,8 +41,9 @@ class ExecutePairTrading:
         else:
             return True
         
-    def execute(self, vec1, vec2, dates, base_fund=100, split=0.5, verbose=False):
+    def execute(self, vec1, vec2, dates, beta_p1, beta_p2, base_fund=100,split=0.5, verbose=False):
 
+        assert (beta_p1 <=1) & (beta_p2 <=1)
         abs_spread = abs(vec1 - vec2)
         abs_spread_std = np.std(abs_spread)
         entry_thresh = self.abs_spread_mean + self.entry_signal*self.abs_spread_std
@@ -94,12 +96,12 @@ class ExecutePairTrading:
                 short_pnl=0
                 if temp_tb.long_stock_1[row]:
                     # calculate pnl when we long stock 1 and short stock 2
-                    long_pnl = base_fund * split * ((temp_tb.stock1_price_exit.values[row] - temp_tb.stock1_price_entry.values[row])/temp_tb.stock1_price_entry.values[row])
-                    short_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_entry.values[row] - temp_tb.stock2_price_exit.values[row])/temp_tb.stock2_price_entry.values[row])
+                    long_pnl = base_fund * split * beta_p1 * ((temp_tb.stock1_price_exit.values[row] - temp_tb.stock1_price_entry.values[row])/temp_tb.stock1_price_entry.values[row])
+                    short_pnl = base_fund * (1-split) * beta_p2 * ((temp_tb.stock2_price_entry.values[row] - temp_tb.stock2_price_exit.values[row])/temp_tb.stock2_price_entry.values[row])
                 else:
                     # calculate pnl when we long stock 2 and short stock 1
-                    long_pnl = base_fund * (1-split) * ((temp_tb.stock2_price_exit.values[row] - temp_tb.stock2_price_entry.values[row])/temp_tb.stock2_price_entry.values[row])
-                    short_pnl = base_fund * (split) * ((temp_tb.stock1_price_entry.values[row] - temp_tb.stock1_price_exit.values[row])/temp_tb.stock1_price_entry.values[row])
+                    long_pnl = base_fund * (1-split) * beta_p2 * ((temp_tb.stock2_price_exit.values[row] - temp_tb.stock2_price_entry.values[row])/temp_tb.stock2_price_entry.values[row])
+                    short_pnl = base_fund * (split) * beta_p2 * ((temp_tb.stock1_price_entry.values[row] - temp_tb.stock1_price_exit.values[row])/temp_tb.stock1_price_entry.values[row])
                 pnls.append(long_pnl+short_pnl)
                 
             temp_tb['pnl'] = pnls
@@ -128,9 +130,25 @@ def corr_coef(rs,df):
     vec2_sub1 = rows['Close_P2']
     return np.corrcoef(vec1_sub1, vec2_sub1)[0, 1]
 
-def generate_training_data(data, moving_average=20, training_len=500, test_len=120, entry_signal=1.5, exit_signal=1, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading, max_combinations=-1, combinations=None):
+# Beta
+def calculate_beta_p1(rs, df):
+    rows = df.loc[rs.index]
+    vec1_sub1 = rows['Close_P1']
+    vec2_sub1 = rows['Close_SPY']
+    est=sm.OLS(vec1_sub1,vec2_sub1).fit()
+    return est.params[0]
+
+def calculate_beta_p2(rs, df):
+    rows = df.loc[rs.index]
+    vec1_sub1 = rows['Close_P2']
+    vec2_sub1 = rows['Close_SPY']
+    est=sm.OLS(vec1_sub1,vec2_sub1).fit()
+    return est.params[0]
+
+def generate_training_data(data, sp500_df, moving_average=20, training_len=300, test_len=60, entry_signal=1.5, exit_signal=0.5, calculate_label=True ,verbose=False, execution_class=ExecutePairTrading, max_combinations=-1, combinations=None):
     """
     data: A pandas dataframe from the GetSP500Data module in ultils
+    sp500_df: A pandas datafrom with date and adj close price of SP500 named as Close_SPY
     """
     ts1 = time()
     # set seed
@@ -188,6 +206,9 @@ def generate_training_data(data, moving_average=20, training_len=500, test_len=1
 
         # Create a temp table for the features
         df = pd.merge(vec1_full,vec2_full,on='Date',how='left',suffixes=['_P1','_P2'])
+
+        # join the spy table to get the spy price
+        df = pd.merge(df, sp500_df[['Date','Close_SPY']], how='left', on='Date')
     
         start_ts = time()
         # Calculate the features
@@ -200,6 +221,8 @@ def generate_training_data(data, moving_average=20, training_len=500, test_len=1
         df['abs_spread_std_MA'] = df.rolling(moving_average).abs_spread.std()
 #         df['cos_sim'] = df['Close_P1'].rolling(moving_average).apply(cos_sim, args=(df,))
 #         df['corr_coef'] = df['Close_P1'].rolling(moving_average).apply(corr_coef, args=(df,))
+        df['beta_P1'] = df['Close_P1'].rolling(moving_average).apply(calculate_beta_p1, args=(df,))
+        df['beta_P2'] = df['Close_P1'].rolling(moving_average).apply(calculate_beta_p2, args=(df,))
 
         end_ts = time()
         if verbose:
@@ -236,6 +259,8 @@ def generate_training_data(data, moving_average=20, training_len=500, test_len=1
                                     vec1=df.loc[(idx+1):(idx+test_len)]['Close_P1'].values,
                                     vec2=df.loc[(idx+1):(idx+test_len)]['Close_P2'].values,
                                     dates=df.loc[(idx+1):(idx+test_len)]['Date'].values,
+                                    beta_p1=current_row.beta_P1,
+                                    beta_p2=current_row.beta_P2,
                                     base_fund=100,
                                 )
                     pnls.append(result.final_pl_pct)
